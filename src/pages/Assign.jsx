@@ -1,0 +1,312 @@
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import {
+  Search, Star, BadgeCheck, Check, Users, Send, Split, Package, X, ChevronDown,
+  SlidersHorizontal, Trophy,
+} from 'lucide-react'
+import { Rfqs, Suppliers, Tags, weightedScore } from '../api/client'
+import { Card, Avatar, Spinner, Tag, Empty, StatusBadge, Drawer } from '../components/ui'
+
+const CATEGORIES = ['Electronics', 'Raw Materials', 'Services', 'General']
+
+export default function Assign() {
+  const { id } = useParams()
+  const nav = useNavigate()
+  const [rfqs, setRfqs] = useState(null)
+  const [rfq, setRfq] = useState(null)
+  const [sel, setSel] = useState([]) // selected line ids for partial
+  const [list, setList] = useState([])
+  const [allTags, setAllTags] = useState([])
+  const [q, setQ] = useState('')
+  const [cat, setCat] = useState('All')
+  const [activeTag, setActiveTag] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [weights, setWeights] = useState({ price: 30, quality: 40, delivery: 30 })
+  const [showWeights, setShowWeights] = useState(false)
+  const [rating, setRating] = useState(null) // supplier being rated
+
+  // Rank by weighted score (best first), previously-invited as a tiebreak.
+  // Applies even while searching/filtering.
+  const ranked = useMemo(() => {
+    return [...list]
+      .map((s) => ({ s, score: weightedScore(s, weights) }))
+      .sort((a, b) => b.score - a.score || Number(b.s.previouslyInvited) - Number(a.s.previouslyInvited))
+  }, [list, weights])
+
+  const loadRfq = useCallback(async (rid) => {
+    const data = await Rfqs.get(rid)
+    setRfq(data)
+    setSel(data.lines.map((l) => l.lineId))
+  }, [])
+
+  useEffect(() => {
+    Rfqs.list().then((all) => {
+      setRfqs(all)
+      const target = id || all[0]?.id
+      if (target) loadRfq(target)
+    })
+    Tags().then(setAllTags)
+  }, [id, loadRfq])
+
+  const loadSuppliers = useCallback(async () => {
+    setList(await Suppliers.list({ q, category: cat === 'All' ? '' : cat, tag: activeTag || '' }))
+  }, [q, cat, activeTag])
+  useEffect(() => { loadSuppliers() }, [loadSuppliers])
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
+
+  const toggleLine = (lineId) =>
+    setSel((s) => (s.includes(lineId) ? s.filter((x) => x !== lineId) : [...s, lineId]))
+
+  const assign = async (supplier, type) => {
+    const lineIds = type === 'full' ? rfq.lines.map((l) => l.lineId) : sel
+    if (type === 'partial' && lineIds.length === 0) return flash('Select at least one item for a partial RFQ.')
+    const res = await Rfqs.assign(rfq.id, { supplierId: supplier.id, type, lineIds })
+    await loadRfq(rfq.id)
+    await loadSuppliers()
+    setAllTags(await Tags())
+    flash(`Sent ${type === 'full' ? 'full RFQ' : `${lineIds.length} item(s)`} to ${supplier.name}. Tags updated: ${res.supplierTags.slice(-2).join(', ')}`)
+  }
+
+  const unassign = async (supplierId) => { await Rfqs.unassign(rfq.id, supplierId); loadRfq(rfq.id) }
+
+  const submitRating = async ({ stars, note }) => {
+    await Suppliers.rate(rating.id, { stars, note, rfqId: rfq.id })
+    setRating(null)
+    await loadSuppliers()
+    flash(`Rated ${rating.name} ${stars}★`)
+  }
+
+  if (rfqs === null) return <Card><Spinner label="Loading…" /></Card>
+  if (!rfq) return <Card className="p-6"><Empty icon={Package} title="No RFQs yet" hint="Import a document to create one." /></Card>
+
+  const assignedTo = (lineId) => rfq.assignments.filter((a) => a.lineIds.includes(lineId))
+  const partialCount = sel.length
+  const allSelected = partialCount === rfq.lines.length
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Assign RFQ</h1>
+            <StatusBadge status={rfq.status} />
+          </div>
+          <p className="mt-1 text-sm text-ink-500">Pick items on the left, choose suppliers on the right. Send the whole RFQ or a partial set.</p>
+        </div>
+        <RfqPicker rfqs={rfqs} current={rfq} onPick={(rid) => nav(`/assign/${rid}`)} />
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+        {/* LEFT — items */}
+        <div className="space-y-4">
+          <Card className="p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-bold text-ink-900">{rfq.title}</h2>
+              <button onClick={() => setSel(allSelected ? [] : rfq.lines.map((l) => l.lineId))}
+                className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+                {allSelected ? 'Clear selection' : 'Select all'}
+              </button>
+            </div>
+            <div className="space-y-2">
+              {rfq.lines.map((l) => {
+                const checked = sel.includes(l.lineId)
+                const aTo = assignedTo(l.lineId)
+                return (
+                  <div key={l.lineId} className={`flex items-center gap-3 rounded-xl border p-3 transition ${checked ? 'border-brand-300 bg-brand-50/40' : 'border-ink-100'}`}>
+                    <button onClick={() => toggleLine(l.lineId)}
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${checked ? 'border-brand-500 bg-brand-600 text-white' : 'border-ink-300'}`}>
+                      {checked && <Check size={13} />}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-ink-800">
+                        {l.name}
+                        {l.spec && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-xs font-medium text-ink-500">{l.spec}</span>}
+                      </p>
+                      <p className="text-xs text-ink-400">{l.qty} {l.uom}{l.description ? ` · ${l.description.slice(0, 60)}` : ''}</p>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {aTo.map((a) => <span key={a.id} className="chip bg-emerald-50 text-emerald-700">{a.supplierName.split(' ')[0]}</span>)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="mt-3 text-xs text-ink-400">{partialCount} of {rfq.lines.length} items selected for partial send.</p>
+          </Card>
+
+          {rfq.assignments.length > 0 && (
+            <Card className="p-5">
+              <h3 className="mb-1 font-bold text-ink-900">Current Assignments</h3>
+              <p className="mb-3 text-xs text-ink-400">Rate a supplier once their order is complete.</p>
+              <div className="space-y-2">
+                {rfq.assignments.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 rounded-xl border border-ink-100 p-3">
+                    <Avatar name={a.supplierName} size={34} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-ink-800">{a.supplierName}</p>
+                      <p className="text-xs text-ink-400">{a.type === 'full' ? 'Full RFQ' : `${a.lineIds.length} item(s)`}</p>
+                    </div>
+                    <span className={`chip ${a.type === 'full' ? 'bg-brand-50 text-brand-700' : 'bg-amber-50 text-amber-700'}`}>{a.type}</span>
+                    <button onClick={() => setRating({ id: a.supplierId, name: a.supplierName })} title="Rate supplier"
+                      className="rounded-lg p-1.5 text-ink-400 hover:bg-amber-50 hover:text-amber-600"><Star size={16} /></button>
+                    <button onClick={() => unassign(a.supplierId)} title="Remove" className="text-ink-300 hover:text-rose-500"><X size={16} /></button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* RIGHT — supplier search panel, ranked by weighted score */}
+        <div className="space-y-4">
+          <Card className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-ink-800"><Users size={16} className="text-brand-500" /> Find suppliers</div>
+              <button onClick={() => setShowWeights((v) => !v)} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+                <SlidersHorizontal size={13} /> Weights
+              </button>
+            </div>
+            <div className="relative">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} className="input py-2 pl-9" placeholder="Search name or tag…" />
+            </div>
+
+            {showWeights && (
+              <div className="mt-3 space-y-2 rounded-xl bg-ink-50 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Ranking weights</p>
+                {['price', 'quality', 'delivery'].map((k) => (
+                  <div key={k} className="flex items-center gap-2">
+                    <span className="w-16 text-xs capitalize text-ink-600">{k}</span>
+                    <input type="range" min="0" max="100" step="5" value={weights[k]}
+                      onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} className="flex-1 accent-brand-600" />
+                    <span className="w-8 text-right text-xs font-semibold text-brand-600">{weights[k]}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-2 flex flex-wrap gap-1">
+              {['All', ...CATEGORIES].map((c) => (
+                <button key={c} onClick={() => setCat(c)}
+                  className={`chip border text-[11px] ${cat === c ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-ink-200 text-ink-500 hover:bg-ink-50'}`}>{c}</button>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {allTags.slice(0, 12).map((t) => (
+                <button key={t} onClick={() => setActiveTag(activeTag === t ? null : t)}>
+                  <Tag tone={activeTag === t ? 'brand' : 'ink'}>{t}</Tag>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-ink-400">Sorted best-first by weighted score.</p>
+          </Card>
+
+          <div className="space-y-2">
+            {ranked.map(({ s, score }, i) => (
+              <Card key={s.id} className={`p-3 ${i === 0 ? 'ring-1 ring-emerald-200' : ''}`}>
+                <div className="flex items-center gap-3">
+                  <Avatar name={s.name} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1 truncate font-semibold text-ink-800">
+                      {i === 0 && <Trophy size={13} className="shrink-0 text-amber-500" />}
+                      {s.name} {s.qualified && <BadgeCheck size={14} className="shrink-0 text-emerald-500" />}
+                    </p>
+                    <p className="flex items-center gap-1 text-xs text-ink-400"><Star size={11} className="fill-amber-400 text-amber-400" />{s.rating} · {s.category}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-extrabold leading-none text-ink-900">{score.toFixed(0)}</p>
+                    <p className="text-[10px] uppercase text-ink-400">score</p>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px] text-ink-400">
+                  <span>P {s.scores?.price ?? '—'}</span>
+                  <span>Q {s.scores?.quality ?? '—'}</span>
+                  <span>D {s.scores?.delivery ?? '—'}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {s.tags.slice(0, 5).map((t) => <Tag key={t} tone={activeTag === t ? 'brand' : 'ink'}>{t}</Tag>)}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={() => assign(s, 'full')} className="btn-primary flex-1 py-1.5 text-xs"><Send size={13} /> Full RFQ</button>
+                  <button onClick={() => assign(s, 'partial')} className="btn-outline flex-1 py-1.5 text-xs"><Split size={13} /> Partial</button>
+                </div>
+              </Card>
+            ))}
+            {ranked.length === 0 && <Card className="p-5"><Empty icon={Search} title="No suppliers match" /></Card>}
+          </div>
+        </div>
+      </div>
+
+      <RatingDialog supplier={rating} onClose={() => setRating(null)} onSubmit={submitRating} />
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-ink-900 px-4 py-2.5 text-sm font-medium text-white shadow-card-lg animate-fade-in">
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RatingDialog({ supplier, onClose, onSubmit }) {
+  const [stars, setStars] = useState(0)
+  const [hover, setHover] = useState(0)
+  const [note, setNote] = useState('')
+  useEffect(() => { if (supplier) { setStars(0); setHover(0); setNote('') } }, [supplier])
+  return (
+    <Drawer
+      open={!!supplier}
+      title={`Rate ${supplier?.name || ''}`}
+      subtitle="Recorded against this RFQ and blended into the supplier's score."
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={!stars} onClick={() => onSubmit({ stars, note })}>Submit rating</button>
+        </>
+      }
+    >
+      <div>
+        <label className="label">Rating</label>
+        <div className="flex gap-1" onMouseLeave={() => setHover(0)}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button key={n} onMouseEnter={() => setHover(n)} onClick={() => setStars(n)}>
+              <Star size={30} className={(hover || stars) >= n ? 'fill-amber-400 text-amber-400' : 'text-ink-200'} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label className="label">Notes</label>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input min-h-28"
+          placeholder="On-time? Quality issues? Communication? Anything to remember next time." />
+      </div>
+    </Drawer>
+  )
+}
+
+function RfqPicker({ rfqs, current, onPick }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((v) => !v)} className="btn-outline">
+        {current.id} <ChevronDown size={15} className="text-ink-400" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card-lg">
+            {rfqs.map((r) => (
+              <button key={r.id} onClick={() => { onPick(r.id); setOpen(false) }}
+                className="block w-full px-4 py-2.5 text-left hover:bg-ink-50">
+                <p className="text-sm font-semibold text-ink-800">{r.title}</p>
+                <p className="text-xs text-ink-400">{r.id} · {r.lines.length} items</p>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

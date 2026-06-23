@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  @apply bg-ink-50 text-ink-900 font-sans;
+}
+
+/* Thin, refined scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-ink-200 rounded-full border-2 border-solid border-transparent bg-clip-content;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-ink-300;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-ink-100 shadow-card;
+  }
+  .input {
+    @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900
+      placeholder:text-ink-400 outline-none transition
+      focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10;
+  }
+  .label {
+    @apply block text-xs font-semibold uppercase tracking-wide text-ink-500 mb-1.5;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+      transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-sm shadow-brand-600/30;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink-600 hover:bg-ink-100;
+  }
+  .btn-outline {
+    @apply btn border border-ink-200 bg-white text-ink-700 hover:bg-ink-50;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+}
