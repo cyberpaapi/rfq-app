@@ -29,6 +29,7 @@ export default function DocViewer({ file, kind, sourceText, sheets, target, onCl
   const scrollBodyRef = useRef(null)
   const stageRef = useRef(null)
   const drag = useRef(null)
+  const renderTask = useRef(null)
 
   const transformable = kind === 'pdf' || kind === 'images'
   const scrollable = kind === 'text' || kind === 'rows'
@@ -74,24 +75,36 @@ export default function DocViewer({ file, kind, sourceText, sheets, target, onCl
     setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400', 'bg-amber-50'), 1800)
   }
 
-  // Render the current PDF page.
+  // Render the current PDF page. Zoom is baked INTO the render scale (and we
+  // render at devicePixelRatio) so the page stays crisp when magnified instead
+  // of being a CSS-stretched low-res bitmap. Re-renders whenever zoom changes.
   useEffect(() => {
     if (kind !== 'pdf' || !pdf || !canvasRef.current) return
     let cancelled = false
     pdf.getPage(page).then((p) => {
       if (cancelled) return
       const canvas = canvasRef.current
+      const dpr = window.devicePixelRatio || 1
       const containerW = canvas.parentElement?.clientWidth || 600
       const base = p.getViewport({ scale: 1 })
-      const scale = clamp((containerW - 24) / base.width, 0.5, 2)
-      const viewport = p.getViewport({ scale })
+      const fit = clamp((containerW - 24) / base.width, 0.4, 3) // fit page to panel width at 100%
+      const cssScale = fit * zoom                                // on-screen size
+      // Render at higher pixel density, capped so the canvas can't get huge.
+      const MAX_EDGE = 5000
+      let pxScale = cssScale * dpr
+      pxScale = Math.min(pxScale, MAX_EDGE / base.width, MAX_EDGE / base.height)
+      const viewport = p.getViewport({ scale: pxScale })
       const ctx = canvas.getContext('2d')
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      p.render({ canvasContext: ctx, viewport })
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      canvas.style.width = `${Math.floor(base.width * cssScale)}px`
+      canvas.style.height = `${Math.floor(base.height * cssScale)}px`
+      if (renderTask.current) { try { renderTask.current.cancel() } catch { /* ignore */ } }
+      renderTask.current = p.render({ canvasContext: ctx, viewport })
+      renderTask.current.promise.catch(() => { /* cancelled / superseded */ })
     })
     return () => { cancelled = true }
-  }, [pdf, page, kind])
+  }, [pdf, page, kind, zoom])
 
   const onKeyDown = (e) => {
     const key = e.key.toLowerCase()
@@ -127,7 +140,9 @@ export default function DocViewer({ file, kind, sourceText, sheets, target, onCl
   const onMouseMove = (e) => { if (drag.current) setOffset({ x: drag.current.ox + (e.clientX - drag.current.x), y: drag.current.oy + (e.clientY - drag.current.y) }) }
   const endDrag = () => { drag.current = null }
 
+  // Images: CSS scale (raster). PDF: pan only — zoom is rendered into the canvas.
   const tf = { transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: 'center center', transition: drag.current ? 'none' : 'transform 80ms ease-out' }
+  const tfPan = { transform: `translate(${offset.x}px, ${offset.y}px)`, transition: drag.current ? 'none' : 'transform 80ms ease-out' }
 
   return (
     <div className="sticky top-20 flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card">
@@ -169,7 +184,7 @@ export default function DocViewer({ file, kind, sourceText, sheets, target, onCl
       >
         {kind === 'pdf' && (
           loading ? <div className="flex items-center justify-center gap-2 py-20 text-sm text-ink-400"><Loader2 size={18} className="animate-spin" /> Loading document…</div>
-            : <div className="flex min-h-full items-center justify-center" style={tf}><canvas ref={canvasRef} className="rounded-lg bg-white shadow-sm" /></div>
+            : <div className="flex min-h-full items-center justify-center" style={tfPan}><canvas ref={canvasRef} className="rounded-lg bg-white shadow-sm" /></div>
         )}
 
         {kind === 'images' && (
