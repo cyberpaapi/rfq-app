@@ -1,42 +1,12 @@
 import { Router } from 'express'
 import * as store from '../store.js'
 import { newId } from '../store.js'
-import { deriveBaseName, addTagUnique, normalize } from '../lib/tags.js'
+import { deriveBaseName, addTagUnique } from '../lib/tags.js'
 import { upload } from '../lib/upload.js'
 import { extractDocument } from '../lib/extract.js'
-import { extractItems } from '../lib/ai.js'
+import { extractItems, matchQuoteLines } from '../lib/ai.js'
 
 const router = Router()
-
-// Match supplier-quote lines back onto an RFQ's lines. Order is unreliable but
-// quantity is always identical, so quantity is a strong signal alongside a
-// fuzzy name-token overlap. Greedy best-match, each quote line used once.
-function matchQuoteToRfq(rfqLines, quoteLines) {
-  const tokens = (s) => normalize(s).split(/\s+/).filter(Boolean)
-  const sim = (a, b) => {
-    const A = new Set(tokens(a)), B = new Set(tokens(b))
-    if (!A.size || !B.size) return 0
-    let inter = 0
-    A.forEach((t) => { if (B.has(t)) inter++ })
-    return inter / Math.max(A.size, B.size)
-  }
-  const used = new Set()
-  return rfqLines.map((L) => {
-    let best = null, bestScore = 0
-    quoteLines.forEach((q, qi) => {
-      if (used.has(qi)) return
-      const qtyEq = Number(q.quantity) === Number(L.qty)
-      const score = sim(L.name + ' ' + (L.spec || ''), q.name + ' ' + (q.spec || '')) + (qtyEq ? 0.5 : 0)
-      if (score > bestScore) { bestScore = score; best = { q, qi } }
-    })
-    // Accept a match on decent name overlap or an exact-quantity + any name hit.
-    const ok = best && (bestScore >= 0.8 || bestScore >= 0.3)
-    if (ok) used.add(best.qi)
-    return { line: L, match: ok ? best.q : null, score: bestScore }
-  })
-}
-
-const actorName = (req) => req.get('x-user-name') || 'System'
 
 // Canonical workflow order (mirrors the frontend tracker).
 const WORKFLOW = ['Draft', 'Published', 'Responses Received', 'Evaluation', 'Pending Approval', 'Awarded']
@@ -207,13 +177,20 @@ router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {
     const extraction = await extractDocument({ buffer: req.file.buffer, filename: req.file.originalname })
     const { items: quoteLines, engine } = await extractItems(extraction, { quote: true })
 
-    const matched = matchQuoteToRfq(rfq.lines, quoteLines)
-    const lines = matched.map(({ line, match }) => ({
-      lineId: line.lineId, name: line.name, qty: line.qty,
-      rate: match ? Number(match.unitPrice) || 0 : 0,
-      leadTime: match?.leadTime || '', warranty: match?.warranty || '', eta: '',
-      remark: match ? '' : 'no match found in document',
-    }))
+    // AI maps each quote line onto an RFQ line (by name/spec + quantity, with
+    // order as a hint). Output ALWAYS follows the RFQ's own order and names.
+    const { map, engine: matchEngine } = await matchQuoteLines(rfq.lines, quoteLines)
+    const lines = rfq.lines.map((line, i) => {
+      const q = map[i] >= 0 ? quoteLines[map[i]] : null
+      return {
+        lineId: line.lineId, name: line.name, qty: line.qty,
+        rate: q ? Number(q.unitPrice) || 0 : 0,
+        leadTime: q?.leadTime || '', warranty: q?.warranty || '', eta: '',
+        remark: q ? '' : 'no match found in document',
+      }
+    })
+    const matchedCount = map.filter((x) => x >= 0).length
+    const unmatched = rfq.lines.filter((_, i) => map[i] < 0).map((l) => l.name)
 
     // Replace any earlier quote from this supplier on this RFQ.
     const existing = store.all('quotes').filter((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
@@ -228,11 +205,11 @@ router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {
     store.notify({ type: 'response', title: `New quote from ${supplier.name} on ${rfq.title}`, rfqId: rfq.id })
 
     res.status(201).json({
-      quote, engine,
+      quote, engine, matchEngine,
       extracted: quoteLines.length,
-      matched: matched.filter((m) => m.match).length,
+      matched: matchedCount,
       total: rfq.lines.length,
-      unmatched: matched.filter((m) => !m.match).map((m) => m.line.name),
+      unmatched,
     })
   } catch (err) {
     console.error('[quote-upload] error:', err)

@@ -223,6 +223,91 @@ const QUOTE_ROW_SCHEMA = {
   schema: { type: 'object', additionalProperties: false, properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { ...QUOTE_FIELDS, sourceRow: { type: 'number' } }, required: [...QUOTE_REQ, 'sourceRow'] } } }, required: ['items'] },
 }
 
+// ---- Quote → RFQ line matching --------------------------------------------
+const MATCH_MODEL = process.env.OPENAI_MATCH_MODEL || MODEL
+
+const MATCH_SYSTEM = `You map a SUPPLIER QUOTATION's line items onto a buyer's RFQ line items.
+For EACH rfq line (referenced by its index "i"), choose the quote line index that refers to the SAME item, or -1 if nothing matches.
+Use these signals, in priority order:
+1. QUANTITY — the same item almost always has the SAME quantity in both lists. Strong signal.
+2. Item NAME / SPECIFICATION similarity — allow synonyms, abbreviations, reordered words, brand/model differences, minor wording.
+3. ORDER — quote lines are OFTEN (not always) in the same order as the rfq lines, so a quote line at a similar position is a good tie-breaker.
+Rules:
+- Each quote line may be used for AT MOST ONE rfq line.
+- Return EXACTLY one entry per rfq line: its rfqIndex and the chosen quoteIndex (or -1).
+- Prefer a confident -1 over a wrong match.`
+
+const MATCH_SCHEMA = {
+  name: 'quote_match', strict: true,
+  schema: {
+    type: 'object', additionalProperties: false,
+    properties: {
+      matches: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: false, properties: { rfqIndex: { type: 'number' }, quoteIndex: { type: 'number' } }, required: ['rfqIndex', 'quoteIndex'] },
+      },
+    },
+    required: ['matches'],
+  },
+}
+
+// Token-overlap fallback (no API key) — name similarity + exact-quantity bonus
+// + small same-position bonus. Returns rfqIndex -> quoteIndex (or -1).
+function heuristicMatch(rfqLines, quoteLines) {
+  const tokens = (s) => normalize(s).split(/\s+/).filter(Boolean)
+  const sim = (a, b) => {
+    const A = new Set(tokens(a)), B = new Set(tokens(b))
+    if (!A.size || !B.size) return 0
+    let inter = 0
+    A.forEach((t) => { if (B.has(t)) inter++ })
+    return inter / Math.max(A.size, B.size)
+  }
+  const used = new Set()
+  const map = new Array(rfqLines.length).fill(-1)
+  rfqLines.forEach((L, ri) => {
+    let best = -1, bestScore = 0
+    quoteLines.forEach((q, qi) => {
+      if (used.has(qi)) return
+      const qtyEq = Number(q.quantity) === Number(L.qty)
+      const score = sim(`${L.name} ${L.spec || ''}`, `${q.name} ${q.spec || ''}`) + (qtyEq ? 0.5 : 0) + (ri === qi ? 0.15 : 0)
+      if (score > bestScore) { bestScore = score; best = qi }
+    })
+    if (best >= 0 && bestScore >= 0.3) { map[ri] = best; used.add(best) }
+  })
+  return map
+}
+
+// AI-driven matching with a heuristic fallback. Returns { map, engine } where
+// map[rfqIndex] = quoteIndex (or -1). Robust for ~250 items (one compact call).
+export async function matchQuoteLines(rfqLines = [], quoteLines = []) {
+  if (!quoteLines.length || !rfqLines.length) return { map: new Array(rfqLines.length).fill(-1), engine: null }
+  if (!process.env.OPENAI_API_KEY) return { map: heuristicMatch(rfqLines, quoteLines), engine: 'fallback' }
+
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const rfq = rfqLines.map((l, i) => ({ i, name: l.name, spec: l.spec || '', qty: Number(l.qty) || 0, uom: l.uom || '' }))
+  const quote = quoteLines.map((q, i) => ({ i, name: q.name, spec: q.spec || '', qty: Number(q.quantity) || 0, uom: q.uom || '' }))
+  try {
+    const messages = [
+      { role: 'system', content: MATCH_SYSTEM },
+      { role: 'user', content: `RFQ lines (${rfq.length}):\n${JSON.stringify(rfq)}\n\nQUOTE lines (${quote.length}):\n${JSON.stringify(quote)}` },
+    ]
+    const resp = await client.chat.completions.create(chatParams(MATCH_MODEL, messages, MATCH_SCHEMA))
+    const arr = JSON.parse(resp.choices[0].message.content || '{"matches":[]}').matches || []
+    const map = new Array(rfqLines.length).fill(-1)
+    const used = new Set()
+    for (const m of arr) {
+      const ri = Number(m.rfqIndex), qi = Number(m.quoteIndex)
+      if (ri >= 0 && ri < rfqLines.length && qi >= 0 && qi < quoteLines.length && map[ri] === -1 && !used.has(qi)) {
+        map[ri] = qi; used.add(qi)
+      }
+    }
+    return { map, engine: MATCH_MODEL }
+  } catch (e) {
+    console.warn('[ai] quote match failed, using heuristic:', e.message)
+    return { map: heuristicMatch(rfqLines, quoteLines), engine: 'heuristic' }
+  }
+}
+
 // Build the ordered list of work units. Each unit carries:
 //   { content, pages:[n...], source:'Page 3' | 'Rows 1-10' }
 async function buildChunks(extraction) {
