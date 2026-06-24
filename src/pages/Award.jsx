@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts'
-import { Award as AwardIcon, Trophy, Check, X, Scale, Coins, Lock, ShieldCheck } from 'lucide-react'
+import { Award as AwardIcon, Trophy, Check, X, Scale, Coins, Lock, ShieldCheck, Split, ChevronRight } from 'lucide-react'
 import { Rfqs, Suppliers, Reports } from '../api/client'
 import { fmt } from '../data/mock'
 import { Card, SectionTitle, Avatar, Spinner, Empty } from '../components/ui'
@@ -20,9 +20,10 @@ export default function Award() {
   const [rfq, setRfq] = useState(null)
   const [suppliers, setSuppliers] = useState({})
   const [weights, setWeights] = useState({ price: 30, quality: 40, delivery: 30 })
-  const [method, setMethod] = useState('weighted')
+  const [method, setMethod] = useState('lowest')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
+  const [segregation, setSegregation] = useState(null)
 
   useEffect(() => {
     Promise.all([Rfqs.list(), Reports(), Suppliers.list()]).then(([rfqs, rep, sups]) => {
@@ -105,6 +106,38 @@ export default function Award() {
   const rejectAll = async () => { setBusy(true); try { await Rfqs.award(rfqId, { type: 'reject' }); flash('All quotes rejected'); load() } finally { setBusy(false) } }
   const approve = async (role) => { setBusy(true); try { await Rfqs.approve(rfqId, { role, decision: 'approved' }); flash(`${role.toUpperCase()} approved`); load() } finally { setBusy(false) } }
 
+  // Segregate: assign each line item to its cheapest quoting supplier, grouped
+  // per supplier with totals (cost, line count, quantity).
+  const segregate = () => {
+    const bySup = {}
+    for (const line of rfq.lines) {
+      let best = null
+      for (const q of quotes) {
+        const ql = q.lines.find((l) => l.lineId === line.lineId)
+        if (ql && Number(ql.rate) > 0 && (best === null || Number(ql.rate) < best.rate)) best = { sid: q.supplierId, rate: Number(ql.rate) }
+      }
+      if (!best) continue
+      const qty = Number(line.qty) || 0
+      bySup[best.sid] ??= { supplierId: best.sid, supplierName: nameOf(best.sid), lines: [], totalCost: 0, totalQty: 0 }
+      bySup[best.sid].lines.push({ lineId: line.lineId, name: line.name, spec: line.spec, qty, rate: best.rate, total: best.rate * qty })
+      bySup[best.sid].totalCost += best.rate * qty
+      bySup[best.sid].totalQty += qty
+    }
+    const list = Object.values(bySup).map((s) => ({ ...s, lineCount: s.lines.length })).sort((a, b) => b.totalCost - a.totalCost)
+    setSegregation(list)
+  }
+
+  const awardSegregation = async () => {
+    if (!segregation) return
+    setBusy(true)
+    try {
+      const awards = segregation.map((s) => ({ supplierId: s.supplierId, lineIds: s.lines.map((l) => l.lineId), amount: s.totalCost }))
+      const amount = awards.reduce((a, x) => a + x.amount, 0)
+      await Rfqs.award(rfqId, { type: 'split', awards, amount })
+      flash(`Awarded across ${awards.length} suppliers (segregated)`); load()
+    } finally { setBusy(false) }
+  }
+
   const awarded = rfq.status === 'Awarded' || rfq.award
   const canAward = can('award.decide')
 
@@ -173,6 +206,27 @@ export default function Award() {
               })}
             </div>
           </Card>
+
+          {/* Segregate — auto-pick cheapest supplier per line, with a per-supplier breakdown */}
+          {method === 'lowest' && !awarded && (
+            <Card className="p-5">
+              <SectionTitle action={<button className="btn-primary py-1.5 text-xs" disabled={busy} onClick={segregate}><Split size={14} /> Segregate</button>}>Segregate by Line Item</SectionTitle>
+              {!segregation ? (
+                <p className="text-sm text-ink-400">Auto-assign each line item to its cheapest quoting supplier, then review the per-supplier split below.</p>
+              ) : segregation.length === 0 ? (
+                <p className="text-sm text-ink-400">No priced quote lines to segregate.</p>
+              ) : (
+                <div className="space-y-2">
+                  {segregation.map((s) => <SupplierAwardCard key={s.supplierId} s={s} />)}
+                  <div className="flex items-center justify-between rounded-xl bg-ink-50 p-3">
+                    <span className="text-sm font-semibold text-ink-700">Grand total ({segregation.reduce((a, s) => a + s.lineCount, 0)} items · {segregation.reduce((a, s) => a + s.totalQty, 0)} qty)</span>
+                    <span className="text-lg font-extrabold text-ink-900">{fmt(segregation.reduce((a, s) => a + s.totalCost, 0))}</span>
+                  </div>
+                  {canAward && <button className="btn-primary w-full" disabled={busy} onClick={awardSegregation}><Check size={16} /> Award this split</button>}
+                </div>
+              )}
+            </Card>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -239,6 +293,52 @@ export default function Award() {
       </div>
 
       {toast && <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-ink-900 px-4 py-2.5 text-sm font-medium text-white shadow-card-lg animate-fade-in">{toast}</div>}
+    </div>
+  )
+}
+
+// Per-supplier award block — collapsed by default (totals only), expands to the
+// awarded line items.
+function SupplierAwardCard({ s }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-xl border border-ink-100">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-3 p-3 text-left hover:bg-ink-50/60">
+        <ChevronRight size={15} className={`shrink-0 text-ink-400 transition ${open ? 'rotate-90' : ''}`} />
+        <Avatar name={s.supplierName} size={32} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-bold text-ink-800">{s.supplierName}</p>
+          <p className="text-xs text-ink-400">{s.lineCount} line item{s.lineCount > 1 ? 's' : ''} · {s.totalQty} total qty</p>
+        </div>
+        <p className="text-base font-extrabold text-ink-900">{fmt(s.totalCost)}</p>
+      </button>
+      {open && (
+        <div className="overflow-x-auto border-t border-ink-100 px-3 py-2">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-ink-400">
+                <th className="py-1">Item</th><th className="py-1 text-right">Qty</th><th className="py-1 text-right">Rate</th><th className="py-1 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.lines.map((l) => (
+                <tr key={l.lineId} className="border-t border-ink-50">
+                  <td className="py-1.5 text-ink-700">{l.name}{l.spec && <span className="ml-1 text-xs text-ink-400">· {l.spec}</span>}</td>
+                  <td className="py-1.5 text-right text-ink-600">{l.qty}</td>
+                  <td className="py-1.5 text-right text-ink-600">{fmt(l.rate)}</td>
+                  <td className="py-1.5 text-right font-semibold text-ink-800">{fmt(l.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-ink-100 font-bold">
+                <td className="py-1.5">Total · {s.lineCount} items · {s.totalQty} qty</td><td></td><td></td>
+                <td className="py-1.5 text-right text-ink-900">{fmt(s.totalCost)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

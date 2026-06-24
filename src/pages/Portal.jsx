@@ -1,223 +1,201 @@
 import { useEffect, useState } from 'react'
-import { Store, UploadCloud, Send, Loader2, FileText, PackageCheck, MessageSquare, Paperclip } from 'lucide-react'
-import { Rfqs, Suppliers, Ingest } from '../api/client'
+import { Store, UploadCloud, Loader2, FileText, PackageCheck, LogOut, MessageSquare, Send, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Rfqs, Suppliers } from '../api/client'
 import { Card, Avatar, Spinner, Empty } from '../components/ui'
+
+const SESSION_KEY = 'rfq.supplierSession'
 
 export default function Portal() {
   const [suppliers, setSuppliers] = useState(null)
-  const [supplierId, setSupplierId] = useState('')
+  const [supplierId, setSupplierId] = useState(() => localStorage.getItem(SESSION_KEY) || '')
   const [rfqs, setRfqs] = useState([])
   const [rfqId, setRfqId] = useState('')
   const [rfq, setRfq] = useState(null)
-  const [lines, setLines] = useState([])
-  const [meta, setMeta] = useState({ paymentTerms: '', notes: '' })
-  const [parsing, setParsing] = useState(false)
-  const [submitted, setSubmitted] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
   const [clarifyMsg, setClarifyMsg] = useState('')
   const [clarifySent, setClarifySent] = useState(false)
 
-  useEffect(() => { Suppliers.list().then((s) => { setSuppliers(s); setSupplierId(s[0]?.id || '') }) }, [])
+  useEffect(() => { Suppliers.list().then(setSuppliers) }, [])
 
-  // Load RFQs assigned to the chosen supplier.
+  // The 3 demo sign-in profiles (Supplier 1/2/3) — no password.
+  const profiles = (suppliers || []).filter((s) => /^supplier\s*\d/i.test(s.name))
+  const supplier = suppliers?.find((s) => s.id === supplierId)
+
+  // Load RFQs assigned to the signed-in supplier.
   useEffect(() => {
-    if (!supplierId) return
+    if (!supplierId) { setRfqs([]); setRfqId(''); setRfq(null); return }
     Rfqs.list().then((all) => {
       const mine = all.filter((r) => r.assignments?.some((a) => a.supplierId === supplierId))
       setRfqs(mine)
       setRfqId(mine[0]?.id || '')
-      if (!mine.length) { setRfq(null); setLines([]) }
     })
-    setSubmitted(null)
   }, [supplierId])
 
-  // Load the chosen RFQ's assigned lines.
   useEffect(() => {
-    if (!rfqId) { setRfq(null); setLines([]); return }
-    Rfqs.get(rfqId).then((r) => {
-      setRfq(r)
-      const mine = r.assignments.filter((a) => a.supplierId === supplierId).flatMap((a) => a.lineIds)
-      const assignedLines = r.lines.filter((l) => mine.includes(l.lineId))
-      setLines(assignedLines.map((l) => ({ ...l, rate: '', leadTime: '', warranty: '', eta: '', remark: '' })))
-    })
-    setSubmitted(null)
-    setClarifySent(false)
-  }, [rfqId, supplierId])
+    setResult(null); setError(null); setClarifySent(false)
+    if (!rfqId) { setRfq(null); return }
+    Rfqs.get(rfqId).then(setRfq)
+  }, [rfqId])
 
-  const setLine = (lineId, k, v) => setLines((ls) => ls.map((l) => (l.lineId === lineId ? { ...l, [k]: v } : l)))
+  const signIn = (id) => { localStorage.setItem(SESSION_KEY, id); setSupplierId(id) }
+  const signOut = () => { localStorage.removeItem(SESSION_KEY); setSupplierId(''); setRfq(null) }
 
-  const parseUpload = async (file) => {
-    setParsing(true)
+  const myLines = rfq ? (() => {
+    const mine = rfq.assignments.filter((a) => a.supplierId === supplierId).flatMap((a) => a.lineIds)
+    return rfq.lines.filter((l) => mine.includes(l.lineId))
+  })() : []
+  const alreadyQuoted = rfq?.quotes?.some((q) => q.supplierId === supplierId)
+
+  const upload = async (file) => {
+    if (!file) return
+    setUploading(true); setError(null); setResult(null)
     try {
-      const res = await Ingest(file)
-      // Match parsed quantities/names back onto the assigned lines by name.
-      setLines((ls) => ls.map((l) => {
-        const hit = res.items.find((it) => it.name.toLowerCase() === l.name.toLowerCase())
-        return hit ? { ...l, remark: l.remark || `from upload: ${hit.quantity} ${hit.uom}` } : l
-      }))
-    } finally {
-      setParsing(false)
-    }
-  }
-
-  const submit = async () => {
-    const supplier = suppliers.find((s) => s.id === supplierId)
-    const quote = await Rfqs.quote(rfqId, {
-      supplierId,
-      supplierName: supplier?.name,
-      lines: lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, rate: l.rate, leadTime: l.leadTime, warranty: l.warranty, eta: l.eta, remark: l.remark })),
-      paymentTerms: meta.paymentTerms,
-      notes: meta.notes,
-    })
-    setSubmitted(quote)
+      const res = await Rfqs.quoteUpload(rfqId, file, supplierId)
+      setResult(res)
+      Rfqs.get(rfqId).then(setRfq)
+    } catch (e) { setError(e.message) } finally { setUploading(false) }
   }
 
   const sendClarification = async () => {
     if (!clarifyMsg.trim()) return
     await Rfqs.clarify(rfqId, { from: supplier?.name || 'Supplier', supplierId, message: clarifyMsg })
-    setClarifyMsg('')
-    setClarifySent(true)
+    setClarifyMsg(''); setClarifySent(true)
   }
-
-  const total = lines.reduce((a, l) => a + (Number(l.rate) || 0) * (Number(l.qty) || 0), 0)
-  const supplier = suppliers?.find((s) => s.id === supplierId)
 
   if (suppliers === null) return <Card><Spinner /></Card>
 
-  return (
-    <div className="space-y-5">
-      <div className="rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-6 text-white">
-        <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> Supplier Portal</div>
-        <h1 className="mt-1 text-2xl font-extrabold">Submit your quotation</h1>
-        <p className="mt-1 text-sm text-brand-100">View the RFQs assigned to you, then quote by filling the form or uploading your quote document.</p>
-      </div>
-
-      {/* Identity + RFQ selectors */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card className="p-4">
-          <label className="label">Signed in as (supplier)</label>
-          <div className="flex items-center gap-3">
-            <Avatar name={supplier?.name || '?'} />
-            <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="input">
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+  // ---- Sign-in screen --------------------------------------------------------
+  if (!supplierId || !supplier) {
+    return (
+      <div className="mx-auto max-w-lg space-y-5">
+        <div className="rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-6 text-white">
+          <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> Supplier Portal</div>
+          <h1 className="mt-1 text-2xl font-extrabold">Sign in</h1>
+          <p className="mt-1 text-sm text-brand-100">Choose your supplier profile to continue. (Demo — no password.)</p>
+        </div>
+        <Card className="p-5">
+          <p className="mb-3 text-sm font-semibold text-ink-700">Sign in as</p>
+          <div className="space-y-2">
+            {profiles.map((s) => (
+              <button key={s.id} onClick={() => signIn(s.id)} className="flex w-full items-center gap-3 rounded-xl border border-ink-100 p-3 text-left transition hover:border-brand-300 hover:bg-brand-50/50">
+                <Avatar name={s.name} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-ink-800">{s.name}</p>
+                  <p className="text-xs text-ink-400">{s.category} · {s.email}</p>
+                </div>
+                <Send size={16} className="text-brand-500" />
+              </button>
+            ))}
+            {profiles.length === 0 && <Empty icon={Store} title="No supplier profiles" hint="Reset the demo data to seed Supplier 1/2/3." />}
           </div>
         </Card>
-        <Card className="p-4">
-          <label className="label">Assigned RFQ</label>
-          {rfqs.length === 0 ? (
-            <p className="py-2 text-sm text-ink-400">No RFQs assigned to this supplier yet.</p>
-          ) : (
-            <select value={rfqId} onChange={(e) => setRfqId(e.target.value)} className="input">
-              {rfqs.map((r) => <option key={r.id} value={r.id}>{r.id} — {r.title}</option>)}
-            </select>
-          )}
-        </Card>
+      </div>
+    )
+  }
+
+  // ---- Signed-in -------------------------------------------------------------
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-6 text-white">
+        <div>
+          <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> Supplier Portal</div>
+          <h1 className="mt-1 text-2xl font-extrabold">Welcome, {supplier.name}</h1>
+          <p className="mt-1 text-sm text-brand-100">Upload your quotation document for the RFQs assigned to you.</p>
+        </div>
+        <button onClick={signOut} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold backdrop-blur hover:bg-white/25"><LogOut size={15} /> Sign out</button>
       </div>
 
-      {submitted ? (
-        <Card className="p-10 text-center">
-          <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-600"><PackageCheck size={28} /></div>
-          <p className="text-lg font-bold text-ink-900">Quotation submitted</p>
-          <p className="mt-1 text-sm text-ink-500">Ref {submitted.id} · {submitted.lines.length} lines · the buyer has been notified.</p>
-          <button className="btn-outline mt-4" onClick={() => setSubmitted(null)}>Submit another</button>
-        </Card>
-      ) : !rfq || lines.length === 0 ? (
-        <Card className="p-6"><Empty icon={FileText} title="Nothing to quote" hint="Select a supplier and an assigned RFQ above." /></Card>
+      <Card className="p-4">
+        <label className="label">Assigned RFQ</label>
+        {rfqs.length === 0 ? (
+          <p className="py-2 text-sm text-ink-400">No RFQs assigned to you yet.</p>
+        ) : (
+          <select value={rfqId} onChange={(e) => setRfqId(e.target.value)} className="input">
+            {rfqs.map((r) => <option key={r.id} value={r.id}>{r.id} — {r.title}</option>)}
+          </select>
+        )}
+      </Card>
+
+      {!rfq ? (
+        rfqs.length > 0 ? <Card><Spinner /></Card> : <Card className="p-6"><Empty icon={FileText} title="Nothing assigned" hint="The buyer hasn't assigned an RFQ to you yet." /></Card>
       ) : (
         <Card className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {lines.length} items to quote</span></h2>
-            <label className="btn-outline cursor-pointer">
-              {parsing ? <><Loader2 size={16} className="animate-spin" /> Reading…</> : <><UploadCloud size={16} /> Upload quote doc</>}
-              <input type="file" hidden accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg"
-                onChange={(e) => e.target.files[0] && parseUpload(e.target.files[0])} />
+            <h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} items to quote</span></h2>
+            <label className={`btn-primary cursor-pointer ${uploading ? 'pointer-events-none opacity-70' : ''}`}>
+              {uploading ? <><Loader2 size={16} className="animate-spin" /> Reading document…</> : <><UploadCloud size={16} /> {alreadyQuoted ? 'Re-upload quote' : 'Upload quote document'}</>}
+              <input type="file" hidden accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
             </label>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+          {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
+
+          {/* The items the supplier must quote (read-only) */}
+          <div className="overflow-x-auto rounded-xl border border-ink-100">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-ink-100 text-left text-xs font-semibold uppercase tracking-wide text-ink-400">
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3 text-right">Qty</th>
-                  <th className="py-2 pr-3">Rate</th>
-                  <th className="py-2 pr-3">Lead time</th>
-                  <th className="py-2 pr-3">ETA</th>
-                  <th className="py-2 pr-3">Warranty</th>
-                  <th className="py-2 text-right">Line total</th>
+                <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
+                  <th className="px-3 py-2.5">Item</th>
+                  <th className="px-3 py-2.5">Specification</th>
+                  <th className="px-3 py-2.5 text-right">Qty</th>
+                  <th className="px-3 py-2.5">Unit</th>
+                  {result && <th className="px-3 py-2.5 text-right">Your Rate</th>}
+                  {result && <th className="px-3 py-2.5">Status</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-ink-50">
-                {lines.map((l) => (
-                  <tr key={l.lineId}>
-                    <td className="py-2.5 pr-3">
-                      <p className="font-semibold text-ink-800">{l.name}</p>
-                      {l.remark && <p className="text-xs text-ink-400">{l.remark}</p>}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right text-ink-600">{l.qty} {l.uom}</td>
-                    <td className="py-2.5 pr-3"><input type="number" min="0" step="0.01" value={l.rate} onChange={(e) => setLine(l.lineId, 'rate', e.target.value)} className="input w-24 py-1.5" placeholder="0.00" /></td>
-                    <td className="py-2.5 pr-3"><input value={l.leadTime} onChange={(e) => setLine(l.lineId, 'leadTime', e.target.value)} className="input w-28 py-1.5" placeholder="e.g. 14 days" /></td>
-                    <td className="py-2.5 pr-3"><input type="date" value={l.eta} onChange={(e) => setLine(l.lineId, 'eta', e.target.value)} className="input w-36 py-1.5" /></td>
-                    <td className="py-2.5 pr-3"><input value={l.warranty} onChange={(e) => setLine(l.lineId, 'warranty', e.target.value)} className="input w-28 py-1.5" placeholder="e.g. 2 yrs" /></td>
-                    <td className="py-2.5 text-right font-semibold text-ink-800">{((Number(l.rate) || 0) * (Number(l.qty) || 0)).toFixed(2)}</td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-ink-100">
+                {myLines.map((l) => {
+                  const q = result?.quote?.lines.find((x) => x.lineId === l.lineId)
+                  const matched = q && Number(q.rate) > 0
+                  return (
+                    <tr key={l.lineId} className="align-top">
+                      <td className="px-3 py-2 font-semibold text-ink-800">{l.name}</td>
+                      <td className="px-3 py-2 text-ink-600"><span className="line-clamp-2">{[l.spec, l.description].filter(Boolean).join(' · ') || '—'}</span></td>
+                      <td className="px-3 py-2 text-right text-ink-700">{l.qty}</td>
+                      <td className="px-3 py-2 text-ink-600">{l.uom}</td>
+                      {result && <td className="px-3 py-2 text-right font-semibold text-ink-800">{q && Number(q.rate) ? Number(q.rate).toFixed(2) : '—'}</td>}
+                      {result && <td className="px-3 py-2">{matched ? <span className="chip bg-emerald-50 text-emerald-700">matched</span> : <span className="chip bg-amber-50 text-amber-700">not found</span>}</td>}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div><label className="label">Payment terms</label><input value={meta.paymentTerms} onChange={(e) => setMeta((m) => ({ ...m, paymentTerms: e.target.value }))} className="input" placeholder="e.g. 30 days net" /></div>
-            <div><label className="label">Remarks</label><input value={meta.notes} onChange={(e) => setMeta((m) => ({ ...m, notes: e.target.value }))} className="input" placeholder="Anything the buyer should know" /></div>
-          </div>
-
-          <div className="mt-5 flex items-center justify-between border-t border-ink-100 pt-4">
-            <div>
-              <p className="text-xs text-ink-400">Quote total</p>
-              <p className="text-xl font-extrabold text-ink-900">{total.toFixed(2)}</p>
+          {result && (
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">
+              <PackageCheck size={18} className="shrink-0" />
+              <span>Quote submitted from <b>{result.quote.source}</b> — matched <b>{result.matched}/{result.total}</b> line items{result.unmatched?.length ? `; couldn't match: ${result.unmatched.join(', ')}` : ''}. The buyer has been notified.</span>
             </div>
-            <button className="btn-primary" onClick={submit}><Send size={16} /> Submit quotation</button>
-          </div>
+          )}
+          {!result && (
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-400"><CheckCircle2 size={13} /> Quantities are fixed by the buyer — your document is matched to these items by name + quantity (any order is fine).</p>
+          )}
         </Card>
       )}
 
-      {/* RFQ documents + clarifications */}
-      {rfq && lines.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Card className="p-5">
-            <h3 className="mb-3 flex items-center gap-2 font-bold text-ink-900"><Paperclip size={16} className="text-brand-500" /> RFQ Documents</h3>
-            {(!rfq.attachments || rfq.attachments.length === 0) ? (
-              <p className="text-sm text-ink-400">No attachments shared for this RFQ.</p>
-            ) : (
-              <div className="space-y-2">
-                {rfq.attachments.map((f, i) => (
-                  <a key={i} href={f.url || '#'} className="flex items-center gap-3 rounded-xl border border-ink-100 p-2.5 text-sm hover:bg-ink-50">
-                    <FileText size={15} className="text-ink-400" /><span className="flex-1 truncate text-ink-700">{f.name || f}</span>
-                  </a>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-5">
-            <h3 className="mb-3 flex items-center gap-2 font-bold text-ink-900"><MessageSquare size={16} className="text-brand-500" /> Ask a Clarification</h3>
-            {rfq.clarifications?.length > 0 && (
-              <div className="mb-3 space-y-1.5">
-                {rfq.clarifications.map((c) => (
-                  <div key={c.id} className="rounded-lg bg-ink-50 px-3 py-2 text-xs"><b className="text-ink-700">{c.from}:</b> <span className="text-ink-600">{c.message}</span></div>
-                ))}
-              </div>
-            )}
-            {clarifySent ? (
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Clarification sent — the buyer has been notified.</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <textarea value={clarifyMsg} onChange={(e) => setClarifyMsg(e.target.value)} className="input min-h-20 text-sm" placeholder="e.g. Is Triac dimming acceptable for the wall light?" />
-                <button className="btn-outline self-end" disabled={!clarifyMsg.trim()} onClick={sendClarification}><Send size={14} /> Send</button>
-              </div>
-            )}
-          </Card>
-        </div>
+      {/* Clarification thread */}
+      {rfq && (
+        <Card className="p-5">
+          <h3 className="mb-3 flex items-center gap-2 font-bold text-ink-900"><MessageSquare size={16} className="text-brand-500" /> Ask a Clarification</h3>
+          {rfq.clarifications?.length > 0 && (
+            <div className="mb-3 space-y-1.5">
+              {rfq.clarifications.map((c) => (
+                <div key={c.id} className="rounded-lg bg-ink-50 px-3 py-2 text-xs"><b className="text-ink-700">{c.from}:</b> <span className="text-ink-600">{c.message}</span></div>
+              ))}
+            </div>
+          )}
+          {clarifySent ? (
+            <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Clarification sent — the buyer has been notified.</p>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input value={clarifyMsg} onChange={(e) => setClarifyMsg(e.target.value)} className="input flex-1 text-sm" placeholder="e.g. Is Triac dimming acceptable for the wall light?" />
+              <button className="btn-outline" disabled={!clarifyMsg.trim()} onClick={sendClarification}><Send size={14} /> Send</button>
+            </div>
+          )}
+        </Card>
       )}
     </div>
   )

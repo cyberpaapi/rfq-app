@@ -6,7 +6,7 @@ import {
   ScanSearch, Boxes, ListChecks, TriangleAlert, FilePlus2, RefreshCw,
 } from 'lucide-react'
 import { Ingest, Rfqs, Cluster } from '../api/client'
-import { Card, Tag, Empty } from '../components/ui'
+import { Card, Empty } from '../components/ui'
 import DocViewer from '../components/DocViewer'
 
 const iconFor = (name = '') => {
@@ -214,17 +214,7 @@ export default function Import() {
           <div className={`grid gap-5 ${showViewer ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
             <div className="min-w-0">
               {view === 'basic' ? (
-                <div className="space-y-2">
-                  {rows.map((row, i) => {
-                    const key = `b${i}`
-                    const inst = instancesFor(row)
-                    return (
-                      <EditableRow key={i} row={row} onChange={(p) => setRow(i, p)} onRemove={() => removeRow(i)}
-                        pageLabel={<PageLabel instances={inst} activeIdx={active?.key === key ? active.idx : -1} onClick={() => jump(key, inst)} />} />
-                    )
-                  })}
-                  {rows.length === 0 && <Empty icon={Layers} title="No items" hint="Add an item or process another document." />}
-                </div>
+                <BasicTable rows={rows} setRow={setRow} removeRow={removeRow} active={active} jump={jump} instancesFor={instancesFor} />
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -296,46 +286,94 @@ function ClubCard({ club, idx, active, jump, instancesFor }) {
   )
 }
 
-function EditableRow({ row, onChange, onRemove, pageLabel }) {
-  const [showDesc, setShowDesc] = useState(false)
-  const hasSecondary = (row.secondaryRequirements || '').trim()
+// Editable cell: shows up to 3 lines clamped; click to expand into a full editor.
+function Cell({ value, onChange, placeholder = '—', type = 'text', className = '' }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    if (type === 'textarea') return <textarea autoFocus value={value ?? ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} rows={4} className={`w-full resize-y rounded-md border border-brand-300 bg-white p-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 ${className}`} />
+    return <input autoFocus type={type} value={value ?? ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} className={`w-full rounded-md border border-brand-300 bg-white p-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 ${className}`} />
+  }
+  const has = value != null && value !== ''
+  return <div onClick={() => setEditing(true)} title="Click to edit / expand" className={`min-h-[1.5rem] cursor-text whitespace-pre-wrap break-words text-sm line-clamp-3 ${className}`}>{has ? String(value) : <span className="text-ink-300">{placeholder}</span>}</div>
+}
+
+// Specification cell shows spec + extracted description together (clamped); edit
+// targets the spec field (description lives in the row detail expander).
+function SpecCell({ row, on }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) return <textarea autoFocus value={row.spec || ''} onChange={(e) => on({ spec: e.target.value })} onBlur={() => setEditing(false)} placeholder="Specification" rows={4} className="w-full resize-y rounded-md border border-brand-300 bg-white p-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-500/20" />
+  const combined = [row.spec, row.description].filter(Boolean).join('\n')
+  return <div onClick={() => setEditing(true)} title="Click to edit / expand" className="min-h-[1.5rem] cursor-text whitespace-pre-wrap break-words text-sm line-clamp-3">{combined || <span className="text-ink-300">—</span>}</div>
+}
+
+function PhotoCell({ value, onChange }) {
   return (
-    <div className="rounded-xl border border-ink-100 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <input value={row.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="Item name (base)" className="input min-w-48 flex-1 py-1.5 font-semibold" />
-        <input value={row.spec} onChange={(e) => onChange({ spec: e.target.value })} placeholder="spec / variant" className="input w-44 py-1.5" />
-        <input type="number" min="0" step="any" value={row.quantity} onChange={(e) => onChange({ quantity: e.target.value })} className="input w-20 py-1.5 text-right" title="Quantity" />
-        <input value={row.uom} onChange={(e) => onChange({ uom: e.target.value })} className="input w-20 py-1.5" placeholder="UOM" />
-        <button onClick={onRemove} className="rounded-lg p-1.5 text-ink-300 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={16} /></button>
-      </div>
+    <label className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+      <UploadCloud size={14} /> {value ? <span className="max-w-24 truncate">{value}</span> : 'browse'}
+      <input type="file" hidden accept="image/*" onChange={(e) => e.target.files[0] && onChange(e.target.files[0].name)} />
+    </label>
+  )
+}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button onClick={() => setShowDesc((v) => !v)} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700"><ChevronDown size={13} className={`transition ${showDesc ? 'rotate-180' : ''}`} /> Details</button>
-        {hasSecondary && <span className="chip bg-sky-50 text-sky-700">+ add-ons</span>}
-        {pageLabel}
-        <div className="ml-auto flex flex-wrap gap-1">
-          {(row.tags || []).map((t) => <Tag key={t} tone={t === row.baseName ? 'emerald' : 'ink'}>{t}</Tag>)}
-        </div>
-      </div>
-
-      {showDesc && (
-        <div className="mt-2 space-y-2">
-          <div className="grid gap-2 sm:grid-cols-3">
-            <input value={row.brand || ''} onChange={(e) => onChange({ brand: e.target.value })} placeholder="Brand" className="input py-1.5 text-sm" />
-            <input value={row.model || ''} onChange={(e) => onChange({ model: e.target.value })} placeholder="Model No." className="input py-1.5 text-sm" />
-            <input value={row.partNo || ''} onChange={(e) => onChange({ partNo: e.target.value })} placeholder="Part No." className="input py-1.5 text-sm" />
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input value={row.remark || ''} onChange={(e) => onChange({ remark: e.target.value })} placeholder="Remark" className="input py-1.5 text-sm" />
-            <input type="date" value={row.requiredDeliveryDate || ''} onChange={(e) => onChange({ requiredDeliveryDate: e.target.value })} title="Required delivery date" className="input py-1.5 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Secondary requirements <span className="font-normal text-ink-400">— things needed alongside this item (e.g. panel board for a fan)</span></label>
-            <textarea value={row.secondaryRequirements || ''} onChange={(e) => onChange({ secondaryRequirements: e.target.value })} placeholder="e.g. Panel board, power supply, mounting bracket" className="input min-h-16 text-sm" />
-          </div>
-          <textarea value={row.description} onChange={(e) => onChange({ description: e.target.value })} placeholder="Other details — motor details, zone, notes…" className="input min-h-16 text-sm" />
-        </div>
-      )}
+function BasicTable({ rows, setRow, removeRow, active, jump, instancesFor }) {
+  if (!rows.length) return <Empty icon={Layers} title="No items" hint="Add an item or process another document." />
+  const HEADERS = ['Item Name', 'Specification', 'Brand', 'Model No.', 'Part No.', 'Quantity', 'Unit', 'Upload Photo', 'Remark']
+  return (
+    <div className="overflow-x-auto rounded-xl border border-ink-100">
+      <table className="w-full min-w-[1040px] border-collapse text-sm">
+        <thead>
+          <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
+            {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}</th>)}
+            <th className="border-b border-ink-200 px-2 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-ink-100">
+          {rows.map((row, i) => <BasicRow key={i} row={row} i={i} setRow={setRow} removeRow={removeRow} active={active} jump={jump} instancesFor={instancesFor} />)}
+        </tbody>
+      </table>
     </div>
+  )
+}
+
+function BasicRow({ row, i, setRow, removeRow, active, jump, instancesFor }) {
+  const [open, setOpen] = useState(false)
+  const key = `b${i}`
+  const inst = instancesFor(row)
+  const on = (patch) => setRow(i, patch)
+  return (
+    <>
+      <tr className="align-top hover:bg-ink-50/40">
+        <td className="w-56 px-3 py-2">
+          <div className="flex items-start gap-1">
+            <button onClick={() => setOpen((o) => !o)} title="More fields" className="mt-0.5 shrink-0 text-ink-300 hover:text-brand-600"><ChevronDown size={14} className={`transition ${open ? 'rotate-180' : ''}`} /></button>
+            <div className="min-w-0 flex-1">
+              <Cell value={row.name} onChange={(v) => on({ name: v })} placeholder="Item name" type="textarea" className="font-semibold text-ink-800" />
+              <div className="mt-1"><PageLabel instances={inst} activeIdx={active?.key === key ? active.idx : -1} onClick={() => jump(key, inst)} /></div>
+              {(row.secondaryRequirements || '').trim() && <p className="mt-1 line-clamp-2 text-[11px] text-sky-600">+ also needs: {row.secondaryRequirements}</p>}
+            </div>
+          </div>
+        </td>
+        <td className="w-64 px-3 py-2"><SpecCell row={row} on={on} /></td>
+        <td className="w-32 px-3 py-2"><Cell value={row.brand} onChange={(v) => on({ brand: v })} type="textarea" /></td>
+        <td className="w-28 px-3 py-2"><Cell value={row.model} onChange={(v) => on({ model: v })} /></td>
+        <td className="w-28 px-3 py-2"><Cell value={row.partNo} onChange={(v) => on({ partNo: v })} /></td>
+        <td className="w-20 px-3 py-2"><Cell value={row.quantity} onChange={(v) => on({ quantity: v })} type="number" className="text-right" /></td>
+        <td className="w-20 px-3 py-2"><Cell value={row.uom} onChange={(v) => on({ uom: v })} placeholder="Unit" /></td>
+        <td className="w-28 px-3 py-2"><PhotoCell value={row.photo} onChange={(v) => on({ photo: v })} /></td>
+        <td className="w-40 px-3 py-2"><Cell value={row.remark} onChange={(v) => on({ remark: v })} type="textarea" /></td>
+        <td className="px-2 py-2"><button onClick={() => removeRow(i)} className="rounded-lg p-1.5 text-ink-300 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button></td>
+      </tr>
+      {open && (
+        <tr className="bg-ink-50/50">
+          <td colSpan={10} className="px-4 py-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div><label className="mb-1 block text-xs font-semibold text-ink-500">Required delivery date</label><input type="date" value={row.requiredDeliveryDate || ''} onChange={(e) => on({ requiredDeliveryDate: e.target.value })} className="input py-1.5 text-sm" /></div>
+              <div className="sm:col-span-2"><label className="mb-1 block text-xs font-semibold text-ink-500">Secondary requirements <span className="font-normal text-ink-400">(needed alongside, e.g. panel board for a fan)</span></label><textarea value={row.secondaryRequirements || ''} onChange={(e) => on({ secondaryRequirements: e.target.value })} className="input min-h-14 text-sm" /></div>
+              <div className="sm:col-span-3"><label className="mb-1 block text-xs font-semibold text-ink-500">Additional details</label><textarea value={row.description || ''} onChange={(e) => on({ description: e.target.value })} className="input min-h-14 text-sm" /></div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   )
 }

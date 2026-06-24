@@ -1,9 +1,42 @@
 import { Router } from 'express'
 import * as store from '../store.js'
 import { newId } from '../store.js'
-import { deriveBaseName, addTagUnique } from '../lib/tags.js'
+import { deriveBaseName, addTagUnique, normalize } from '../lib/tags.js'
+import { upload } from '../lib/upload.js'
+import { extractDocument } from '../lib/extract.js'
+import { extractItems } from '../lib/ai.js'
 
 const router = Router()
+
+// Match supplier-quote lines back onto an RFQ's lines. Order is unreliable but
+// quantity is always identical, so quantity is a strong signal alongside a
+// fuzzy name-token overlap. Greedy best-match, each quote line used once.
+function matchQuoteToRfq(rfqLines, quoteLines) {
+  const tokens = (s) => normalize(s).split(/\s+/).filter(Boolean)
+  const sim = (a, b) => {
+    const A = new Set(tokens(a)), B = new Set(tokens(b))
+    if (!A.size || !B.size) return 0
+    let inter = 0
+    A.forEach((t) => { if (B.has(t)) inter++ })
+    return inter / Math.max(A.size, B.size)
+  }
+  const used = new Set()
+  return rfqLines.map((L) => {
+    let best = null, bestScore = 0
+    quoteLines.forEach((q, qi) => {
+      if (used.has(qi)) return
+      const qtyEq = Number(q.quantity) === Number(L.qty)
+      const score = sim(L.name + ' ' + (L.spec || ''), q.name + ' ' + (q.spec || '')) + (qtyEq ? 0.5 : 0)
+      if (score > bestScore) { bestScore = score; best = { q, qi } }
+    })
+    // Accept a match on decent name overlap or an exact-quantity + any name hit.
+    const ok = best && (bestScore >= 0.8 || bestScore >= 0.3)
+    if (ok) used.add(best.qi)
+    return { line: L, match: ok ? best.q : null, score: bestScore }
+  })
+}
+
+const actorName = (req) => req.get('x-user-name') || 'System'
 
 // Canonical workflow order (mirrors the frontend tracker).
 const WORKFLOW = ['Draft', 'Published', 'Responses Received', 'Evaluation', 'Pending Approval', 'Awarded']
@@ -157,6 +190,54 @@ router.post('/:id/quote', (req, res) => {
   store.logAudit({ rfqId: rfq.id, user: quote.supplierName || 'Supplier', action: 'Submitted quotation', field: 'Quotes', old: '', value: quote.id })
   store.notify({ type: 'response', title: `New quote from ${quote.supplierName} on ${rfq.title}`, rfqId: rfq.id })
   res.status(201).json(quote)
+})
+
+// Supplier portal: upload a quote DOCUMENT. The AI extracts each quoted line +
+// unit price, which is matched back onto the RFQ's lines (by name + quantity)
+// and saved as a structured quote. [?supplierId=]
+router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {
+  try {
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+    if (!req.file) return res.status(400).json({ error: 'file is required' })
+    const supplierId = req.query.supplierId || req.body?.supplierId
+    const supplier = supplierId ? store.find('suppliers', supplierId) : null
+    if (!supplier) return res.status(400).json({ error: 'supplierId is required' })
+
+    const extraction = await extractDocument({ buffer: req.file.buffer, filename: req.file.originalname })
+    const { items: quoteLines, engine } = await extractItems(extraction, { quote: true })
+
+    const matched = matchQuoteToRfq(rfq.lines, quoteLines)
+    const lines = matched.map(({ line, match }) => ({
+      lineId: line.lineId, name: line.name, qty: line.qty,
+      rate: match ? Number(match.unitPrice) || 0 : 0,
+      leadTime: match?.leadTime || '', warranty: match?.warranty || '', eta: '',
+      remark: match ? '' : 'no match found in document',
+    }))
+
+    // Replace any earlier quote from this supplier on this RFQ.
+    const existing = store.all('quotes').filter((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
+    existing.forEach((q) => store.remove('quotes', q.id))
+
+    const quote = store.insert('quotes', {
+      id: newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
+      lines, paymentTerms: '', notes: `Parsed from ${req.file.originalname}`, source: req.file.originalname, submittedAt: Date.now(),
+    })
+    if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
+    store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Uploaded quotation document', field: 'Quotes', old: '', value: req.file.originalname })
+    store.notify({ type: 'response', title: `New quote from ${supplier.name} on ${rfq.title}`, rfqId: rfq.id })
+
+    res.status(201).json({
+      quote, engine,
+      extracted: quoteLines.length,
+      matched: matched.filter((m) => m.match).length,
+      total: rfq.lines.length,
+      unmatched: matched.filter((m) => !m.match).map((m) => m.line.name),
+    })
+  } catch (err) {
+    console.error('[quote-upload] error:', err)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // HOD / Finance approval step.

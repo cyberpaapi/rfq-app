@@ -70,6 +70,7 @@ export const Rfqs = {
   assign: (id, b) => api.post(`/rfqs/${id}/assign`, b),
   unassign: (id, supplierId) => api.del(`/rfqs/${id}/assign/${supplierId}`),
   quote: (id, b) => api.post(`/rfqs/${id}/quote`, b),
+  quoteUpload: (id, file, supplierId) => api.upload(`/rfqs/${id}/quote-upload`, file, { supplierId }),
   approve: (id, b) => api.post(`/rfqs/${id}/approve`, b),
   award: (id, b) => api.post(`/rfqs/${id}/award`, b),
   clarify: (id, b) => api.post(`/rfqs/${id}/clarifications`, b),

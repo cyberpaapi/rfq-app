@@ -195,6 +195,34 @@ const ROW_ITEM_SCHEMA = {
   },
 }
 
+// ---- Supplier quotation extraction (adds unit price) ----------------------
+const QUOTE_SYSTEM = `You are reading a SUPPLIER QUOTATION. Extract EVERY quoted line item with its UNIT PRICE.
+- "name": clean base product name.
+- "spec": distinguishing specification, "" if none.
+- "quantity": quantity quoted (number, default 1).
+- "uom": short unit (Nos, PCS, KG, MTR…).
+- "unitPrice": the PER-UNIT price/rate as a NUMBER, no currency symbols. If only a line total is shown, divide it by the quantity. Use 0 if no price is present.
+- "leadTime": delivery lead-time text if present, else "".
+- "warranty": warranty text if present, else "".
+Be exhaustive — one item per quoted line. Ignore sub-totals, totals, taxes, and terms.`
+
+const QUOTE_FIELDS = {
+  name: { type: 'string' }, spec: { type: 'string' }, quantity: { type: 'number' },
+  uom: { type: 'string' }, unitPrice: { type: 'number' }, leadTime: { type: 'string' }, warranty: { type: 'string' },
+}
+const QUOTE_REQ = ['name', 'spec', 'quantity', 'uom', 'unitPrice', 'leadTime', 'warranty']
+const QUOTE_ITEM_SCHEMA = {
+  name: 'quote_items', strict: true,
+  schema: { type: 'object', additionalProperties: false, properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: QUOTE_FIELDS, required: QUOTE_REQ } } }, required: ['items'] },
+}
+const QUOTE_ROW_SYSTEM = QUOTE_SYSTEM + `
+
+INPUT FORMAT: spreadsheet ROWS as JSON, each with a "row" number. Return exactly one item per quoted row and echo its "row" number into "sourceRow".`
+const QUOTE_ROW_SCHEMA = {
+  name: 'quote_row_items', strict: true,
+  schema: { type: 'object', additionalProperties: false, properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { ...QUOTE_FIELDS, sourceRow: { type: 'number' } }, required: [...QUOTE_REQ, 'sourceRow'] } } }, required: ['items'] },
+}
+
 // Build the ordered list of work units. Each unit carries:
 //   { content, pages:[n...], source:'Page 3' | 'Rows 1-10' }
 async function buildChunks(extraction) {
@@ -332,12 +360,18 @@ export async function clusterItems(items = []) {
   return { clubs, clubEngine: engine }
 }
 
-export async function extractItems(extraction) {
+export async function extractItems(extraction, opts = {}) {
+  const quote = !!opts.quote // supplier-quote mode → extract unit prices, skip clubbing
   const hasKey = !!process.env.OPENAI_API_KEY
   if (!hasKey) {
     const text = extraction.text || ''
     return { items: naiveParse(text), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used naive parser.', pages: 1, chunks: 1 }
   }
+
+  const itemSchema = quote ? QUOTE_ITEM_SCHEMA : ITEM_SCHEMA
+  const itemSystem = quote ? QUOTE_SYSTEM : SYSTEM
+  const rowSchema = quote ? QUOTE_ROW_SCHEMA : ROW_ITEM_SCHEMA
+  const rowSystem = quote ? QUOTE_ROW_SYSTEM : ROW_SYSTEM
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const { pages, units, rowLabels } = await buildChunks(extraction)
@@ -349,14 +383,14 @@ export async function extractItems(extraction) {
     try {
       if (u.rowMode) {
         // Spreadsheet rows: provenance is the exact row the model echoed back.
-        const raw = await callModel(client, u.content, u.source, ROW_ITEM_SCHEMA, ROW_SYSTEM)
+        const raw = await callModel(client, u.content, u.source, rowSchema, rowSystem)
         return raw.map((it) => {
           const id = Number(it.sourceRow) || 0
           const { sourceRow, ...rest } = it
           return { ...rest, pages: id ? [id] : [], sources: id ? [rowLabels?.[id] || `Row ${id}`] : [] }
         })
       }
-      const raw = await callModel(client, u.content, u.source)
+      const raw = await callModel(client, u.content, u.source, itemSchema, itemSystem)
       return raw.map((it) => ({ ...it, pages: u.pages, sources: [u.source] }))
     } catch (e) {
       console.warn(`[ai] chunk "${u.source}" failed:`, e.message)
@@ -370,8 +404,8 @@ export async function extractItems(extraction) {
   const items = []
   perChunk.forEach((arr) => arr.forEach((it) => items.push(it)))
 
-  // Clubbed view (best-effort; never blocks the basic result).
-  const { clubs, engine: clubEngine } = await clubItems(client, items)
+  // Clubbed view (best-effort; never blocks the basic result). Skipped for quotes.
+  const { clubs, engine: clubEngine } = quote ? { clubs: null, engine: null } : await clubItems(client, items)
 
   const unitWord = extraction.kind === 'rows' ? 'row(s)' : extraction.kind === 'pdf' ? 'page(s)' : 'section(s)'
   const note = units.length > 1 ? `Parsed ${pages} ${unitWord} in ${units.length} chunks, ${CONCURRENCY}-way parallel.` : undefined
