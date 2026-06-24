@@ -1,24 +1,33 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Search, Plus, SlidersHorizontal, FileText } from 'lucide-react'
-import { rfqs, STATUS, fmt } from '../data/mock'
-import { Card, StatusBadge, Empty } from '../components/ui'
+import { Rfqs, Reports } from '../api/client'
+import { STATUS, fmt } from '../data/mock'
+import { Card, StatusBadge, Empty, Spinner } from '../components/ui'
 
 const FILTERS = ['All', 'Open', 'Awarded', 'Closed', 'Expired']
-const today = '2026-06-19'
+const today = new Date().toISOString().slice(0, 10)
 
 export default function RfqList() {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('All')
+  const [rfqs, setRfqs] = useState(null)
+  const [responded, setResponded] = useState({}) // id -> responded supplier count
+
+  useEffect(() => {
+    Rfqs.list().then(setRfqs)
+    Reports().then((r) => setResponded(Object.fromEntries(r.summaryRows.map((s) => [s.id, s.responded]))))
+  }, [])
 
   const list = useMemo(() => {
+    if (!rfqs) return []
     return rfqs.filter((r) => {
       const matchesQ =
         !q ||
         r.id.toLowerCase().includes(q.toLowerCase()) ||
-        r.title.toLowerCase().includes(q.toLowerCase()) ||
-        r.buyer.toLowerCase().includes(q.toLowerCase())
-      const expired = r.deadline < today && ![STATUS.AWARDED, STATUS.CLOSED].includes(r.status)
+        (r.title || '').toLowerCase().includes(q.toLowerCase()) ||
+        (r.buyer || '').toLowerCase().includes(q.toLowerCase())
+      const expired = r.deadline && r.deadline < today && ![STATUS.AWARDED, STATUS.CLOSED].includes(r.status)
       const open = ![STATUS.AWARDED, STATUS.CLOSED, STATUS.CANCELLED].includes(r.status)
       const matchesF =
         filter === 'All' ||
@@ -28,7 +37,9 @@ export default function RfqList() {
         (filter === 'Expired' && expired)
       return matchesQ && matchesF
     })
-  }, [q, filter])
+  }, [q, filter, rfqs])
+
+  if (!rfqs) return <Card><Spinner label="Loading RFQs…" /></Card>
 
   return (
     <div className="space-y-5">
@@ -91,8 +102,8 @@ export default function RfqList() {
                     </td>
                     <td className="px-5 py-3.5 text-ink-600">{r.category}</td>
                     <td className="px-5 py-3.5 text-ink-600">{r.buyer}</td>
-                    <td className="px-5 py-3.5 text-ink-600">{r.responded.length}/{r.invited.length}</td>
-                    <td className={`px-5 py-3.5 ${r.deadline < today ? 'text-rose-500' : 'text-ink-600'}`}>{r.deadline}</td>
+                    <td className="px-5 py-3.5 text-ink-600">{responded[r.id] ?? 0}/{r.assignments?.length ?? 0}</td>
+                    <td className={`px-5 py-3.5 ${r.deadline && r.deadline < today ? 'text-rose-500' : 'text-ink-600'}`}>{r.deadline || '—'}</td>
                     <td className="px-5 py-3.5 text-right font-semibold text-ink-800">{fmt(r.budget)}</td>
                     <td className="px-5 py-3.5"><StatusBadge status={r.status} /></td>
                   </tr>

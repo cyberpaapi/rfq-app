@@ -1,28 +1,48 @@
 // Sends extracted content to OpenAI and returns a clean, de-duplicated item list.
+//
+// Large documents are split into chunks (PDF pages, image groups, or 10-row
+// spreadsheet blocks) and sent to the model 4-at-a-time in parallel, then
+// stitched back together in the original order. Every item carries the page(s)
+// / row-range it was found on (provenance) for the verification view.
+//
+// A second "clubbing" pass then asks a (configurable) model to group entries
+// that refer to the SAME real-world item even when the wording differs — this
+// powers the optional "Clubbed view".
+//
 // If no API key is configured, falls back to a naive line parser so the app still works.
 import OpenAI from 'openai'
 import { normalize } from './tags.js'
+import { mapLimit } from './pool.js'
+import { splitPdfPages } from './pdf.js'
 
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+const MODEL = process.env.OPENAI_MODEL || 'gpt-5.4-mini'
+// The "clubbing" consolidation pass uses GPT-5.5 (OpenAI's flagship, available
+// in the API since Apr 2026) for better same-entity grouping. Override with
+// OPENAI_CLUB_MODEL if you don't have 5.5 access (e.g. gpt-4o, gpt-4.1).
+const CLUB_MODEL = process.env.OPENAI_CLUB_MODEL || 'gpt-5.5'
+const CONCURRENCY = Number(process.env.AI_CONCURRENCY) || 4       // pass N chunks at a time
+const PAGES_PER_CALL = Number(process.env.AI_PAGES_PER_CALL) || 1  // PDF pages per request
+const ROWS_PER_CALL = Number(process.env.AI_ROWS_PER_CALL) || 10   // spreadsheet rows per request
+const TEXT_LINES_PER_CALL = Number(process.env.AI_TEXT_LINES_PER_CALL) || 120
 
-const SYSTEM = `You are a meticulous procurement assistant. Extract EVERY purchasable LINE ITEM and REQUIREMENT from the document (a quotation, BOQ, purchase list, invoice, or spreadsheet export). The document may span MULTIPLE pages/images — read all of them.
+const SYSTEM = `You are a meticulous procurement assistant. Extract EVERY purchasable LINE ITEM and REQUIREMENT from the document (a quotation, BOQ, purchase list, invoice, or spreadsheet export). You may be given ONE PAGE/SECTION of a larger document — extract everything visible on it; do not worry about other pages.
 
 FIELD SEGREGATION — follow exactly:
 - "name": the CLEAN BASE product name ONLY. No ratings, sizes, options or extra words. e.g. "Inlined cabinet type exhaust fan". Never put the spec in the name.
-- "spec": the short distinguishing specification that makes this item a unique variant — capacity/rating (15kW, 7.5kW), size (5kg, 2.5sqmm), phase, voltage, model, finish, options like "with VFD"/"without VFD". e.g. "7.5kW, 3 phase, with VFD". "" if none.
-- "description": ALL remaining details from the row and its columns — motor details, panel-board requirement, zone/area it belongs to, power requirement, notes, any text in extra columns. Do NOT discard information; put everything that isn't name/spec/qty/uom here. Keep it concise but complete.
+- "spec": the short distinguishing specification that makes this item a unique variant — capacity/rating (15kW, 7.5kW), size (5kg, 2.5sqmm), phase, voltage, model, finish, options like "with VFD"/"without VFD". "" if none.
+- "description": ALL remaining details from the row and its columns — motor details, panel-board requirement, zone/area, power requirement, notes, any text in extra columns. Do NOT discard information.
 
 WHAT MAKES AN ITEM DISTINCT:
 - Two rows with the SAME name but DIFFERENT spec are DIFFERENT items — capture each.
 - Merge ONLY rows truly identical in BOTH name and spec — then SUM their quantities. Otherwise keep separate.
 
 SECONDARY REQUIREMENTS:
-- Lines that are auxiliary requirements rather than the primary equipment — "Panel Board Requirement", "Power Requirement for Ventilation Fans", control panels, infrastructure, accessories — MUST still be captured. Set "secondary": true for these. Primary equipment is "secondary": false.
+- Auxiliary requirements ("Panel Board Requirement", "Power Requirement", control panels, infrastructure, accessories) MUST still be captured with "secondary": true. Primary equipment is "secondary": false.
 
 GENERAL:
-- Be EXHAUSTIVE. Capture every item/requirement row across all pages and sections. Do not stop early or skip rows.
+- Be EXHAUSTIVE. Capture every item/requirement row in what you are shown.
 - quantity is a number (default 1 if absent). uom is a short unit like Nos, PCS, KG, BAG, MTR.
-- Section/zone headers (e.g. "Staff Kitchen", "Show Kitchen") are NOT items themselves, but list every item under them (record the zone in description).
+- Section/zone headers are NOT items, but list every item under them (record the zone in description).
 - Read part numbers, models, brands when present; otherwise "". Do not invent values.
 - Ignore page headers/footers, totals, taxes and terms.`
 
@@ -30,24 +50,16 @@ const ITEM_SCHEMA = {
   name: 'rfq_items',
   strict: true,
   schema: {
-    type: 'object',
-    additionalProperties: false,
+    type: 'object', additionalProperties: false,
     properties: {
       items: {
         type: 'array',
         items: {
-          type: 'object',
-          additionalProperties: false,
+          type: 'object', additionalProperties: false,
           properties: {
-            name: { type: 'string' },
-            spec: { type: 'string' },
-            quantity: { type: 'number' },
-            uom: { type: 'string' },
-            brand: { type: 'string' },
-            model: { type: 'string' },
-            partNo: { type: 'string' },
-            description: { type: 'string' },
-            secondary: { type: 'boolean' },
+            name: { type: 'string' }, spec: { type: 'string' }, quantity: { type: 'number' },
+            uom: { type: 'string' }, brand: { type: 'string' }, model: { type: 'string' },
+            partNo: { type: 'string' }, description: { type: 'string' }, secondary: { type: 'boolean' },
           },
           required: ['name', 'spec', 'quantity', 'uom', 'brand', 'model', 'partNo', 'description', 'secondary'],
         },
@@ -57,8 +69,56 @@ const ITEM_SCHEMA = {
   },
 }
 
-// Merge only rows identical in BOTH name and spec — summing their quantities.
-// Rows that differ in spec stay as separate items.
+const CLUB_SYSTEM = `You are consolidating an already-extracted procurement item list for a cleaner overview. Group entries that refer to the SAME real-world item even when wording differs — synonyms, abbreviations, word order, pluralization, or trivial spec formatting (e.g. "6W" vs "6 watt", "S.S." vs "Stainless Steel").
+
+DO NOT group genuinely different variants: different capacity/rating/size/voltage/finish are DIFFERENT items and must stay in separate clusters.
+
+Rules:
+- Every input index must appear in EXACTLY ONE cluster.
+- A cluster may contain a single item if it has no duplicates.
+- For each cluster provide the best canonical "name" and "spec", a "uom", the member indices, and a short "reason" for grouping (or "unique" for singletons).`
+
+const CLUB_SCHEMA = {
+  name: 'item_clusters',
+  strict: true,
+  schema: {
+    type: 'object', additionalProperties: false,
+    properties: {
+      clusters: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: { type: 'string' }, spec: { type: 'string' }, uom: { type: 'string' },
+            members: { type: 'array', items: { type: 'number' } }, reason: { type: 'string' },
+          },
+          required: ['name', 'spec', 'uom', 'members', 'reason'],
+        },
+      },
+    },
+    required: ['clusters'],
+  },
+}
+
+const uniq = (arr) => [...new Set(arr)]
+
+// GPT-5.x / o-series reasoning models only accept the default temperature and
+// use `max_completion_tokens`; gpt-4.x accepts `temperature` + `max_tokens`.
+// Build a request that works regardless of which model is configured.
+const isReasoning = (model) => /^(gpt-5|o\d)/i.test(model)
+const MAX_TOKENS = Number(process.env.AI_MAX_TOKENS) || 8000
+function chatParams(model, messages, schema) {
+  const p = {
+    model, messages,
+    max_completion_tokens: MAX_TOKENS,
+    response_format: { type: 'json_schema', json_schema: schema },
+  }
+  if (!isReasoning(model)) p.temperature = 0
+  return p
+}
+
+// Merge rows identical in BOTH name and spec — summing quantities and unioning
+// provenance (the pages / row-ranges each copy was found on).
 function dedup(items) {
   const map = new Map()
   for (const it of items) {
@@ -66,16 +126,20 @@ function dedup(items) {
     if (!name) continue
     const spec = String(it.spec || '').trim()
     const key = normalize(name + ' | ' + spec)
+    const pages = it.pages || []
+    const sources = it.sources || []
     if (map.has(key)) {
-      map.get(key).quantity += Number(it.quantity) || 0
+      const cur = map.get(key)
+      cur.quantity += Number(it.quantity) || 0
+      cur.pages = uniq([...cur.pages, ...pages]).sort((a, b) => a - b)
+      cur.sources = uniq([...cur.sources, ...sources])
     } else {
-      map.set(key, { ...it, name, spec, quantity: Number(it.quantity) || 1 })
+      map.set(key, { ...it, name, spec, quantity: Number(it.quantity) || 1, pages: [...pages], sources: [...sources] })
     }
   }
   return [...map.values()]
 }
 
-// Very small heuristic parser for when there is no API key.
 function naiveParse(text) {
   const lines = String(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
   const items = []
@@ -85,52 +149,223 @@ function naiveParse(text) {
     const name = (cells[0] || line).replace(/^\d+[\).\s]+/, '').trim()
     if (!name || name.length < 2) continue
     const qtyCell = cells.find((c) => /^\d+(\.\d+)?$/.test(c))
-    items.push({ name, spec: '', quantity: qtyCell ? Number(qtyCell) : 1, uom: 'PCS', brand: '', model: '', partNo: '', description: '', secondary: false })
+    items.push({ name, spec: '', quantity: qtyCell ? Number(qtyCell) : 1, uom: 'PCS', brand: '', model: '', partNo: '', description: '', secondary: false, pages: [], sources: ['document'] })
   }
-  return dedup(items).slice(0, 200)
+  return dedup(items)
+}
+
+async function callModel(client, content, label = '', schema = ITEM_SCHEMA, system = SYSTEM) {
+  const messages = [{ role: 'system', content: system }, { role: 'user', content }]
+  const resp = await client.chat.completions.create(chatParams(MODEL, messages, schema))
+  if (resp.choices[0].finish_reason === 'length') {
+    console.warn(`[ai] ${label} hit token cap — lower AI_PAGES_PER_CALL / AI_ROWS_PER_CALL or raise AI_MAX_TOKENS.`)
+  }
+  try { return JSON.parse(resp.choices[0].message.content || '{"items":[]}').items || [] }
+  catch { return [] }
+}
+
+// Spreadsheet variant: input is JSON rows, each tagged with its row number, and
+// the model must echo that number back as `sourceRow` so we know exactly which
+// row each item came from.
+const ROW_SYSTEM = SYSTEM + `
+
+INPUT FORMAT: You are given SPREADSHEET ROWS as JSON. Each entry has a "row" number and the cell values keyed by column name. Treat EACH entry as one candidate line item:
+- Set "sourceRow" to that entry's "row" number — exactly.
+- If an entry is a section header, sub-total, total, or otherwise not a purchasable item, OMIT it.
+- A single cell may contain MULTIPLE LINES (e.g. a full specification). Keep that content together — put the distinguishing part in "spec" and the rest in "description". Do not split one row into many items unless it genuinely lists several distinct products.`
+
+const ROW_ITEM_SCHEMA = {
+  name: 'rfq_row_items',
+  strict: true,
+  schema: {
+    type: 'object', additionalProperties: false,
+    properties: {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: { type: 'string' }, spec: { type: 'string' }, quantity: { type: 'number' },
+            uom: { type: 'string' }, brand: { type: 'string' }, model: { type: 'string' },
+            partNo: { type: 'string' }, description: { type: 'string' }, secondary: { type: 'boolean' },
+            sourceRow: { type: 'number' },
+          },
+          required: ['name', 'spec', 'quantity', 'uom', 'brand', 'model', 'partNo', 'description', 'secondary', 'sourceRow'],
+        },
+      },
+    },
+    required: ['items'],
+  },
+}
+
+// Build the ordered list of work units. Each unit carries:
+//   { content, pages:[n...], source:'Page 3' | 'Rows 1-10' }
+async function buildChunks(extraction) {
+  if (extraction.kind === 'pdf') {
+    const { total, chunks } = await splitPdfPages(extraction.buffer, { pagesPerChunk: PAGES_PER_CALL })
+    return {
+      pages: total,
+      units: chunks.map((c) => {
+        const range = []
+        for (let p = c.fromPage; p <= c.toPage; p++) range.push(p)
+        return {
+          source: c.toPage > c.fromPage ? `Page ${c.fromPage}-${c.toPage}` : `Page ${c.fromPage}`,
+          pages: range,
+          content: [
+            { type: 'text', text: `Extract ALL line items from this page (pages ${c.fromPage}-${c.toPage} of ${total}).` },
+            { type: 'file', file: { filename: `page-${c.fromPage}.pdf`, file_data: c.dataUrl } },
+          ],
+        }
+      }),
+    }
+  }
+
+  if (extraction.kind === 'images') {
+    return {
+      pages: extraction.images.length,
+      units: extraction.images.map((url, i) => ({
+        source: `Image ${i + 1}`, pages: [i + 1],
+        content: [
+          { type: 'text', text: `Extract ALL line items from this image (${i + 1} of ${extraction.images.length}).` },
+          { type: 'image_url', image_url: { url, detail: 'high' } },
+        ],
+      })),
+    }
+  }
+
+  // Spreadsheets: parse row-by-row, send 10 structured rows per request.
+  // Each row keeps its real number; multi-line cells stay intact (no newline
+  // splitting), and the model echoes back which row each item came from.
+  if (extraction.kind === 'rows') {
+    const sheets = extraction.sheets || []
+    const multi = extraction.multiSheet
+    const flat = []
+    const rowLabels = {}
+    for (const s of sheets) {
+      for (const r of s.rows) {
+        rowLabels[r.id] = multi ? `${s.name} R${r.excelRow}` : `Row ${r.excelRow}`
+        const data = {}
+        r.cells.forEach((c, i) => {
+          if (c == null || String(c).trim() === '') return
+          const key = (s.header[i] && String(s.header[i]).trim()) || `Col${i + 1}`
+          data[key] = c
+        })
+        flat.push(multi ? { row: r.id, sheet: s.name, ...data } : { row: r.id, ...data })
+      }
+    }
+    const units = []
+    for (let i = 0; i < flat.length; i += ROWS_PER_CALL) {
+      const group = flat.slice(i, i + ROWS_PER_CALL)
+      units.push({
+        rowMode: true,
+        source: `Rows ${group[0]?.row}-${group[group.length - 1]?.row}`,
+        content: [{ type: 'text', text: 'Extract the line item from EACH spreadsheet row below. Echo each row\'s "row" value into "sourceRow".\n\n' + JSON.stringify(group) }],
+      })
+    }
+    return { pages: flat.length, units, rowLabels }
+  }
+
+  // Generic long text: split into line blocks, repeating the header for context.
+  const allLines = String(extraction.text || '').split(/\r?\n/).filter((l) => l.trim() !== '')
+  if (allLines.length <= TEXT_LINES_PER_CALL) {
+    return { pages: 1, units: [{ source: 'Document', pages: [1], content: [{ type: 'text', text: 'Extract ALL line items from this document.\n\n' + (extraction.text || '').slice(0, 80000) }] }] }
+  }
+  const header = allLines[0]
+  const body = allLines.slice(1)
+  const units = []
+  for (let i = 0; i < body.length; i += TEXT_LINES_PER_CALL) {
+    const block = [header, ...body.slice(i, i + TEXT_LINES_PER_CALL)].join('\n')
+    units.push({ source: `Block ${units.length + 1}`, pages: [units.length + 1], content: [{ type: 'text', text: `Extract ALL line items from this section.\n\n` + block }] })
+  }
+  return { pages: units.length, units }
+}
+
+// Second pass: cluster near-duplicate items into "clubs" for the clubbed view.
+async function clubItems(client, items) {
+  if (items.length < 2) return { clubs: null, engine: null }
+  const list = items.map((it, i) => ({ i, name: it.name, spec: it.spec, uom: it.uom, quantity: it.quantity }))
+  let clusters = []
+  try {
+    const messages = [
+      { role: 'system', content: CLUB_SYSTEM },
+      { role: 'user', content: 'Cluster these extracted items. Return clusters with member indices.\n\n' + JSON.stringify(list) },
+    ]
+    const resp = await client.chat.completions.create(chatParams(CLUB_MODEL, messages, CLUB_SCHEMA))
+    clusters = JSON.parse(resp.choices[0].message.content || '{"clusters":[]}').clusters || []
+  } catch (e) {
+    console.warn(`[ai] clubbing pass (${CLUB_MODEL}) failed:`, e.message)
+    return { clubs: null, engine: null }
+  }
+
+  // Map clusters back onto the basic items; ensure every index is covered once.
+  const seen = new Set()
+  const clubs = []
+  for (const c of clusters) {
+    const members = (c.members || []).filter((i) => Number.isInteger(i) && i >= 0 && i < items.length && !seen.has(i))
+    if (!members.length) continue
+    members.forEach((i) => seen.add(i))
+    const mItems = members.map((i) => items[i])
+    clubs.push({
+      name: c.name || mItems[0].name,
+      spec: c.spec || mItems[0].spec || '',
+      uom: c.uom || mItems[0].uom || 'PCS',
+      quantity: mItems.reduce((a, x) => a + (Number(x.quantity) || 0), 0),
+      members,
+      count: members.length,
+      reason: members.length > 1 ? (c.reason || 'similar items') : 'unique',
+      pages: uniq(mItems.flatMap((x) => x.pages || [])).sort((a, b) => a - b),
+      sources: uniq(mItems.flatMap((x) => x.sources || [])),
+    })
+  }
+  // Any items the model missed become their own singleton clubs.
+  items.forEach((it, i) => {
+    if (seen.has(i)) return
+    clubs.push({ name: it.name, spec: it.spec || '', uom: it.uom || 'PCS', quantity: Number(it.quantity) || 0, members: [i], count: 1, reason: 'unique', pages: it.pages || [], sources: it.sources || [] })
+  })
+  return { clubs, engine: CLUB_MODEL }
 }
 
 export async function extractItems(extraction) {
   const hasKey = !!process.env.OPENAI_API_KEY
   if (!hasKey) {
-    const text = extraction.text || (extraction.kind === 'text' ? extraction.text : '') || ''
-    return { items: dedup(naiveParse(text)), engine: 'fallback', note: 'No OPENAI_API_KEY — used naive parser.' }
+    const text = extraction.text || ''
+    return { items: dedup(naiveParse(text)), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used naive parser.', pages: 1, chunks: 1 }
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const content = [{ type: 'text', text: 'Extract ALL line items from this document. It may have multiple pages.' }]
+  const { pages, units, rowLabels } = await buildChunks(extraction)
 
-  if (extraction.kind === 'pdf') {
-    // Send the PDF directly — the model reads text + page images natively.
-    content.push({ type: 'file', file: { filename: extraction.filename || 'document.pdf', file_data: extraction.dataUrl } })
-  } else if (extraction.kind === 'images') {
-    // detail:'high' is essential — without it the image is downsampled and dense
-    // table text becomes unreadable, so only a few items get picked up.
-    for (const url of extraction.images) content.push({ type: 'image_url', image_url: { url, detail: 'high' } })
-  } else {
-    content.push({ type: 'text', text: '\n\nDOCUMENT:\n' + (extraction.text || '').slice(0, 80000) })
-  }
-
-  const resp = await client.chat.completions.create({
-    model: MODEL,
-    temperature: 0,
-    max_tokens: 8000,
-    messages: [
-      { role: 'system', content: SYSTEM },
-      { role: 'user', content },
-    ],
-    response_format: { type: 'json_schema', json_schema: ITEM_SCHEMA },
+  // Fan out (≤ CONCURRENCY in flight); tag every item with its provenance.
+  // A single chunk failing (rate limit, transient error) must NOT sink the whole
+  // job — it just contributes no items.
+  const perChunk = await mapLimit(units, CONCURRENCY, async (u) => {
+    try {
+      if (u.rowMode) {
+        // Spreadsheet rows: provenance is the exact row the model echoed back.
+        const raw = await callModel(client, u.content, u.source, ROW_ITEM_SCHEMA, ROW_SYSTEM)
+        return raw.map((it) => {
+          const id = Number(it.sourceRow) || 0
+          const { sourceRow, ...rest } = it
+          return { ...rest, pages: id ? [id] : [], sources: id ? [rowLabels?.[id] || `Row ${id}`] : [] }
+        })
+      }
+      const raw = await callModel(client, u.content, u.source)
+      return raw.map((it) => ({ ...it, pages: u.pages, sources: [u.source] }))
+    } catch (e) {
+      console.warn(`[ai] chunk "${u.source}" failed:`, e.message)
+      return []
+    }
   })
 
-  if (resp.choices[0].finish_reason === 'length') {
-    console.warn('[ai] response hit max_tokens — item list may be truncated. Consider raising max_tokens.')
-  }
+  // Stitch in document order, then de-duplicate exact name+spec across chunks.
+  const merged = []
+  perChunk.forEach((arr) => arr.forEach((it) => merged.push(it)))
+  const items = dedup(merged)
 
-  let parsed = { items: [] }
-  try {
-    parsed = JSON.parse(resp.choices[0].message.content || '{"items":[]}')
-  } catch {
-    parsed = { items: [] }
-  }
-  return { items: dedup(parsed.items || []), engine: MODEL }
+  // Clubbed view (best-effort; never blocks the basic result).
+  const { clubs, engine: clubEngine } = await clubItems(client, items)
+
+  const unitWord = extraction.kind === 'rows' ? 'row(s)' : extraction.kind === 'pdf' ? 'page(s)' : 'section(s)'
+  const note = units.length > 1 ? `Parsed ${pages} ${unitWord} in ${units.length} chunks, ${CONCURRENCY}-way parallel.` : undefined
+  return { items, clubs, engine: MODEL, clubEngine, note, pages, chunks: units.length }
 }

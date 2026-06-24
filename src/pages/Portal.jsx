@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Store, UploadCloud, Send, Loader2, FileText, PackageCheck } from 'lucide-react'
+import { Store, UploadCloud, Send, Loader2, FileText, PackageCheck, MessageSquare, Paperclip } from 'lucide-react'
 import { Rfqs, Suppliers, Ingest } from '../api/client'
 import { Card, Avatar, Spinner, Empty } from '../components/ui'
 
@@ -13,6 +13,8 @@ export default function Portal() {
   const [meta, setMeta] = useState({ paymentTerms: '', notes: '' })
   const [parsing, setParsing] = useState(false)
   const [submitted, setSubmitted] = useState(null)
+  const [clarifyMsg, setClarifyMsg] = useState('')
+  const [clarifySent, setClarifySent] = useState(false)
 
   useEffect(() => { Suppliers.list().then((s) => { setSuppliers(s); setSupplierId(s[0]?.id || '') }) }, [])
 
@@ -35,9 +37,10 @@ export default function Portal() {
       setRfq(r)
       const mine = r.assignments.filter((a) => a.supplierId === supplierId).flatMap((a) => a.lineIds)
       const assignedLines = r.lines.filter((l) => mine.includes(l.lineId))
-      setLines(assignedLines.map((l) => ({ ...l, rate: '', leadTime: '', warranty: '', remark: '' })))
+      setLines(assignedLines.map((l) => ({ ...l, rate: '', leadTime: '', warranty: '', eta: '', remark: '' })))
     })
     setSubmitted(null)
+    setClarifySent(false)
   }, [rfqId, supplierId])
 
   const setLine = (lineId, k, v) => setLines((ls) => ls.map((l) => (l.lineId === lineId ? { ...l, [k]: v } : l)))
@@ -61,11 +64,18 @@ export default function Portal() {
     const quote = await Rfqs.quote(rfqId, {
       supplierId,
       supplierName: supplier?.name,
-      lines: lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, rate: l.rate, leadTime: l.leadTime, warranty: l.warranty, remark: l.remark })),
+      lines: lines.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty, rate: l.rate, leadTime: l.leadTime, warranty: l.warranty, eta: l.eta, remark: l.remark })),
       paymentTerms: meta.paymentTerms,
       notes: meta.notes,
     })
     setSubmitted(quote)
+  }
+
+  const sendClarification = async () => {
+    if (!clarifyMsg.trim()) return
+    await Rfqs.clarify(rfqId, { from: supplier?.name || 'Supplier', supplierId, message: clarifyMsg })
+    setClarifyMsg('')
+    setClarifySent(true)
   }
 
   const total = lines.reduce((a, l) => a + (Number(l.rate) || 0) * (Number(l.qty) || 0), 0)
@@ -132,6 +142,7 @@ export default function Portal() {
                   <th className="py-2 pr-3 text-right">Qty</th>
                   <th className="py-2 pr-3">Rate</th>
                   <th className="py-2 pr-3">Lead time</th>
+                  <th className="py-2 pr-3">ETA</th>
                   <th className="py-2 pr-3">Warranty</th>
                   <th className="py-2 text-right">Line total</th>
                 </tr>
@@ -146,6 +157,7 @@ export default function Portal() {
                     <td className="py-2.5 pr-3 text-right text-ink-600">{l.qty} {l.uom}</td>
                     <td className="py-2.5 pr-3"><input type="number" min="0" step="0.01" value={l.rate} onChange={(e) => setLine(l.lineId, 'rate', e.target.value)} className="input w-24 py-1.5" placeholder="0.00" /></td>
                     <td className="py-2.5 pr-3"><input value={l.leadTime} onChange={(e) => setLine(l.lineId, 'leadTime', e.target.value)} className="input w-28 py-1.5" placeholder="e.g. 14 days" /></td>
+                    <td className="py-2.5 pr-3"><input type="date" value={l.eta} onChange={(e) => setLine(l.lineId, 'eta', e.target.value)} className="input w-36 py-1.5" /></td>
                     <td className="py-2.5 pr-3"><input value={l.warranty} onChange={(e) => setLine(l.lineId, 'warranty', e.target.value)} className="input w-28 py-1.5" placeholder="e.g. 2 yrs" /></td>
                     <td className="py-2.5 text-right font-semibold text-ink-800">{((Number(l.rate) || 0) * (Number(l.qty) || 0)).toFixed(2)}</td>
                   </tr>
@@ -167,6 +179,45 @@ export default function Portal() {
             <button className="btn-primary" onClick={submit}><Send size={16} /> Submit quotation</button>
           </div>
         </Card>
+      )}
+
+      {/* RFQ documents + clarifications */}
+      {rfq && lines.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card className="p-5">
+            <h3 className="mb-3 flex items-center gap-2 font-bold text-ink-900"><Paperclip size={16} className="text-brand-500" /> RFQ Documents</h3>
+            {(!rfq.attachments || rfq.attachments.length === 0) ? (
+              <p className="text-sm text-ink-400">No attachments shared for this RFQ.</p>
+            ) : (
+              <div className="space-y-2">
+                {rfq.attachments.map((f, i) => (
+                  <a key={i} href={f.url || '#'} className="flex items-center gap-3 rounded-xl border border-ink-100 p-2.5 text-sm hover:bg-ink-50">
+                    <FileText size={15} className="text-ink-400" /><span className="flex-1 truncate text-ink-700">{f.name || f}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="mb-3 flex items-center gap-2 font-bold text-ink-900"><MessageSquare size={16} className="text-brand-500" /> Ask a Clarification</h3>
+            {rfq.clarifications?.length > 0 && (
+              <div className="mb-3 space-y-1.5">
+                {rfq.clarifications.map((c) => (
+                  <div key={c.id} className="rounded-lg bg-ink-50 px-3 py-2 text-xs"><b className="text-ink-700">{c.from}:</b> <span className="text-ink-600">{c.message}</span></div>
+                ))}
+              </div>
+            )}
+            {clarifySent ? (
+              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Clarification sent — the buyer has been notified.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <textarea value={clarifyMsg} onChange={(e) => setClarifyMsg(e.target.value)} className="input min-h-20 text-sm" placeholder="e.g. Is Triac dimming acceptable for the wall light?" />
+                <button className="btn-outline self-end" disabled={!clarifyMsg.trim()} onClick={sendClarification}><Send size={14} /> Send</button>
+              </div>
+            )}
+          </Card>
+        </div>
       )}
     </div>
   )

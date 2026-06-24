@@ -1,6 +1,6 @@
-// Turns an uploaded file into either plain text or page images, ready for the AI step.
+// Turns an uploaded file into either plain text, page images, or STRUCTURED
+// spreadsheet rows, ready for the AI step.
 import * as XLSX from 'xlsx'
-import Papa from 'papaparse'
 
 const ext = (name = '') => (name.split('.').pop() || '').toLowerCase()
 
@@ -17,6 +17,38 @@ async function pdfText(buffer) {
   }
 }
 
+// Read a workbook into structured rows, preserving each row as ONE record even
+// when a cell holds a multi-line value (e.g. a full specification). Every data
+// row gets a stable global `id` (for the verification table) and keeps its real
+// Excel row number (`excelRow`).
+function buildSheets(wb) {
+  let idCounter = 0
+  const sheets = wb.SheetNames.map((name) => {
+    const ws = wb.Sheets[name]
+    if (!ws || !ws['!ref']) return { name, header: [], rows: [] }
+    const range = XLSX.utils.decode_range(ws['!ref'])
+    const raw = []
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      const cells = []
+      let any = false
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]
+        // `w` is the formatted text (keeps dates/decimals readable); fall back to raw value.
+        const v = cell ? (cell.w != null ? cell.w : (cell.v != null ? cell.v : '')) : ''
+        const s = String(v)
+        if (s.trim()) any = true
+        cells.push(s)
+      }
+      raw.push({ excelRow: R + 1, cells, blank: !any })
+    }
+    const firstIdx = raw.findIndex((r) => !r.blank)
+    const header = firstIdx >= 0 ? raw[firstIdx].cells : []
+    const rows = raw.slice(firstIdx + 1).filter((r) => !r.blank).map((r) => ({ id: ++idCounter, excelRow: r.excelRow, cells: r.cells }))
+    return { name, header, rows }
+  })
+  return sheets
+}
+
 export async function extractDocument({ buffer, filename }) {
   const e = ext(filename)
 
@@ -25,31 +57,27 @@ export async function extractDocument({ buffer, filename }) {
     return { kind: 'images', images: [`data:image/${imgMime(e)};base64,${b64}`], meta: { type: 'image' } }
   }
 
-  // Send the PDF straight to the model — it reads each page's text and renders
-  // the page internally, so no local rasterisation is needed. `text` is kept
-  // only for the no-key fallback path.
   if (e === 'pdf') {
     return {
       kind: 'pdf',
       filename,
+      buffer,
       dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
       text: await pdfText(buffer),
       meta: { type: 'pdf', bytes: buffer.length },
     }
   }
 
-  if (e === 'xlsx' || e === 'xls') {
-    const wb = XLSX.read(buffer, { type: 'buffer' })
-    const parts = wb.SheetNames.map((sn) => `# Sheet: ${sn}\n` + XLSX.utils.sheet_to_csv(wb.Sheets[sn]))
-    return { kind: 'text', text: parts.join('\n\n'), meta: { type: 'xlsx', sheets: wb.SheetNames } }
-  }
-
-  if (e === 'csv') {
-    const text = buffer.toString('utf8')
-    // Light validation/normalisation through papaparse.
-    const parsed = Papa.parse(text.trim(), { skipEmptyLines: true })
-    const norm = parsed.data.map((row) => (Array.isArray(row) ? row.join(', ') : row)).join('\n')
-    return { kind: 'text', text: norm, meta: { type: 'csv', rows: parsed.data.length } }
+  // Spreadsheets (and CSV) → structured rows, row by row.
+  if (e === 'xlsx' || e === 'xls' || e === 'csv') {
+    const wb = e === 'csv'
+      ? XLSX.read(buffer.toString('utf8'), { type: 'string' })
+      : XLSX.read(buffer, { type: 'buffer' })
+    const sheets = buildSheets(wb)
+    const multiSheet = sheets.length > 1
+    // Plain-text rendering kept only for the no-key fallback parser.
+    const text = sheets.map((s) => [s.header.join(', '), ...s.rows.map((r) => r.cells.join(', '))].join('\n')).join('\n\n')
+    return { kind: 'rows', sheets, multiSheet, text, meta: { type: e === 'csv' ? 'csv' : 'xlsx', sheets: wb.SheetNames, rows: sheets.reduce((a, s) => a + s.rows.length, 0) } }
   }
 
   // txt, md, json, anything else → treat as text

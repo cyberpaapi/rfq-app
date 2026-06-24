@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   UserPlus, Shield, Check, X, Trash2, Search, KeyRound, RotateCcw, Lock,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLES, ROLE_KEYS, PERMISSIONS, PERMISSION_KEYS, roleColor } from '../data/auth'
-import { suppliers } from '../data/mock'
+import { Suppliers } from '../api/client'
 import { Card, SectionTitle, Avatar, Empty } from '../components/ui'
 
 function RoleBadge({ role }) {
@@ -16,6 +16,8 @@ const genPassword = () => Math.random().toString(36).slice(2, 6) + '-' + Math.ra
 function CreateAccountDrawer({ open, onClose }) {
   const { addUser } = useAuth()
   const [form, setForm] = useState({ name: '', email: '', role: 'buyer', dept: '', linkedSupplier: '', password: genPassword() })
+  const [suppliers, setSuppliers] = useState([])
+  useEffect(() => { if (open) Suppliers.list().then(setSuppliers).catch(() => setSuppliers([])) }, [open])
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
   if (!open) return null
 

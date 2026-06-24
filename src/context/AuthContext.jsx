@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { seedUsers, ROLES, ROLE_KEYS, PERMISSION_KEYS } from '../data/auth'
+import { setActor } from '../api/client'
 
 const AuthContext = createContext(null)
 const LS_USERS = 'rfq.users'
@@ -34,6 +35,9 @@ export function AuthProvider({ children }) {
     () => users.find((u) => u.id === currentId) || users[0],
     [users, currentId],
   )
+
+  // Keep the API client's audit actor in sync with the active identity.
+  useEffect(() => { setActor(current?.name) }, [current])
 
   // Permission lookups now use the editable map.
   const roleCan = (roleKey, perm) => {

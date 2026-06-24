@@ -1,14 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, Users as UsersIcon, GitCompareArrows, Award,
   BarChart3, ShieldCheck, Bell, Search, Plus, Menu, X, UserCog, ChevronDown, Check,
   Package, Sparkles, Send, Store,
 } from 'lucide-react'
-import { notifications } from '../data/mock'
 import { ROLES, roleColor } from '../data/auth'
 import { useAuth } from '../context/AuthContext'
+import { Notifications } from '../api/client'
 import { Avatar } from './ui'
+
+const fmtAgo = (ts) => {
+  const s = Math.floor((Date.now() - ts) / 1000)
+  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
 
 // `perm` may be a string or array (any-of). Omit to always show.
 // `section` groups items under a small heading; `perm` (string|array, any-of) gates visibility.
@@ -160,9 +167,19 @@ function IdentitySwitcher() {
 export default function Layout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [bell, setBell] = useState(false)
+  const [notifications, setNotifications] = useState([])
   const loc = useLocation()
   const { can } = useAuth()
   const unread = notifications.filter((n) => n.unread).length
+
+  const loadNotifications = () => Notifications.list().then(setNotifications).catch(() => {})
+  // Refresh on navigation so newly-triggered events show up.
+  useEffect(() => { loadNotifications() }, [loc.pathname])
+
+  const markAllRead = async () => {
+    await Notifications.readAll().catch(() => {})
+    loadNotifications()
+  }
 
   return (
     <div className="flex min-h-screen bg-ink-50">
@@ -206,15 +223,19 @@ export default function Layout({ children }) {
                   <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card-lg animate-fade-in">
                     <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
                       <p className="text-sm font-bold">Notifications</p>
-                      <button onClick={() => setBell(false)}><X size={16} className="text-ink-400" /></button>
+                      <div className="flex items-center gap-2">
+                        {unread > 0 && <button onClick={markAllRead} className="text-xs font-semibold text-brand-600 hover:text-brand-700">Mark all read</button>}
+                        <button onClick={() => setBell(false)}><X size={16} className="text-ink-400" /></button>
+                      </div>
                     </div>
                     <div className="max-h-96 overflow-auto">
+                      {notifications.length === 0 && <p className="px-4 py-6 text-center text-sm text-ink-400">No notifications</p>}
                       {notifications.map((n) => (
                         <div key={n.id} className={`flex gap-3 px-4 py-3 ${n.unread ? 'bg-brand-50/40' : ''}`}>
                           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${n.unread ? 'bg-brand-500' : 'bg-ink-200'}`} />
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-ink-800">{n.title}</p>
-                            <p className="text-xs text-ink-400">{n.rfq} · {n.time}</p>
+                            <p className="text-xs text-ink-400">{n.rfqId || ''} · {fmtAgo(n.at)}</p>
                           </div>
                         </div>
                       ))}

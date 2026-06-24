@@ -1,21 +1,44 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   Search, Star, BadgeCheck, Check, Users, Send, Split, Package, X, ChevronDown,
-  SlidersHorizontal, Trophy,
+  SlidersHorizontal, Trophy, Pencil, Plus, Trash2, Loader2, ListPlus,
 } from 'lucide-react'
 import { Rfqs, Suppliers, Tags, weightedScore } from '../api/client'
 import { Card, Avatar, Spinner, Tag, Empty, StatusBadge, Drawer } from '../components/ui'
 
 const CATEGORIES = ['Electronics', 'Raw Materials', 'Services', 'General']
+const SCORE_META = [
+  { k: 'price', label: 'Price', color: 'bg-emerald-500' },
+  { k: 'quality', label: 'Quality', color: 'bg-brand-500' },
+  { k: 'delivery', label: 'Delivery', color: 'bg-amber-500' },
+]
+
+// Always-visible Price / Quality / Delivery score bars.
+function ScoreBars({ scores = {}, compact }) {
+  return (
+    <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
+      {SCORE_META.map((m) => (
+        <div key={m.k} className="flex items-center gap-1.5">
+          <span className={`${compact ? 'w-12' : 'w-14'} text-[10px] font-semibold uppercase tracking-wide text-ink-400`}>{m.label}</span>
+          <div className="h-1.5 flex-1 rounded-full bg-ink-100">
+            <div className={`h-full rounded-full ${m.color}`} style={{ width: `${scores?.[m.k] || 0}%` }} />
+          </div>
+          <span className="w-6 text-right text-[11px] font-bold text-ink-700">{scores?.[m.k] ?? '—'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function Assign() {
   const { id } = useParams()
   const nav = useNavigate()
   const [rfqs, setRfqs] = useState(null)
   const [rfq, setRfq] = useState(null)
-  const [sel, setSel] = useState([]) // selected line ids for partial
+  const [sel, setSel] = useState([])
   const [list, setList] = useState([])
+  const [supMap, setSupMap] = useState({}) // all suppliers by id (for assignment scores)
   const [allTags, setAllTags] = useState([])
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('All')
@@ -23,10 +46,9 @@ export default function Assign() {
   const [toast, setToast] = useState(null)
   const [weights, setWeights] = useState({ price: 30, quality: 40, delivery: 30 })
   const [showWeights, setShowWeights] = useState(false)
-  const [rating, setRating] = useState(null) // supplier being rated
+  const [rating, setRating] = useState(null)
+  const [editorOpen, setEditorOpen] = useState(false)
 
-  // Rank by weighted score (best first), previously-invited as a tiebreak.
-  // Applies even while searching/filtering.
   const ranked = useMemo(() => {
     return [...list]
       .map((s) => ({ s, score: weightedScore(s, weights) }))
@@ -46,6 +68,7 @@ export default function Assign() {
       if (target) loadRfq(target)
     })
     Tags().then(setAllTags)
+    Suppliers.list().then((all) => setSupMap(Object.fromEntries(all.map((s) => [s.id, s]))))
   }, [id, loadRfq])
 
   const loadSuppliers = useCallback(async () => {
@@ -77,6 +100,8 @@ export default function Assign() {
     flash(`Rated ${rating.name} ${stars}★`)
   }
 
+  const onItemsSaved = async () => { setEditorOpen(false); await loadRfq(rfq.id); flash('Items updated') }
+
   if (rfqs === null) return <Card><Spinner label="Loading…" /></Card>
   if (!rfq) return <Card className="p-6"><Empty icon={Package} title="No RFQs yet" hint="Import a document to create one." /></Card>
 
@@ -97,18 +122,24 @@ export default function Assign() {
         <RfqPicker rfqs={rfqs} current={rfq} onPick={(rid) => nav(`/assign/${rid}`)} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         {/* LEFT — items */}
         <div className="space-y-4">
           <Card className="p-5">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="font-bold text-ink-900">{rfq.title}</h2>
-              <button onClick={() => setSel(allSelected ? [] : rfq.lines.map((l) => l.lineId))}
-                className="text-xs font-semibold text-brand-600 hover:text-brand-700">
-                {allSelected ? 'Clear selection' : 'Select all'}
-              </button>
+              <div className="flex items-center gap-3">
+                <button onClick={() => setEditorOpen(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+                  <Pencil size={13} /> Edit / Add items
+                </button>
+                <button onClick={() => setSel(allSelected ? [] : rfq.lines.map((l) => l.lineId))}
+                  className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+                  {allSelected ? 'Clear selection' : 'Select all'}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
+              {rfq.lines.length === 0 && <Empty icon={Package} title="No items yet" hint="Use “Edit / Add items” to add line items." />}
               {rfq.lines.map((l) => {
                 const checked = sel.includes(l.lineId)
                 const aTo = assignedTo(l.lineId)
@@ -123,7 +154,7 @@ export default function Assign() {
                         {l.name}
                         {l.spec && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-xs font-medium text-ink-500">{l.spec}</span>}
                       </p>
-                      <p className="text-xs text-ink-400">{l.qty} {l.uom}{l.description ? ` · ${l.description.slice(0, 60)}` : ''}</p>
+                      <p className="text-xs text-ink-400">{l.qty} {l.uom}{[l.brand, l.model].filter(Boolean).length ? ` · ${[l.brand, l.model].filter(Boolean).join(' ')}` : ''}{l.requiredDeliveryDate ? ` · by ${l.requiredDeliveryDate}` : ''}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1">
                       {aTo.map((a) => <span key={a.id} className="chip bg-emerald-50 text-emerald-700">{a.supplierName.split(' ')[0]}</span>)}
@@ -132,7 +163,12 @@ export default function Assign() {
                 )
               })}
             </div>
-            <p className="mt-3 text-xs text-ink-400">{partialCount} of {rfq.lines.length} items selected for partial send.</p>
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-ink-400">{partialCount} of {rfq.lines.length} items selected for partial send.</p>
+              <button onClick={() => setEditorOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-dashed border-ink-300 px-2.5 py-1 text-xs font-semibold text-ink-500 hover:border-brand-300 hover:text-brand-600">
+                <ListPlus size={13} /> Add item
+              </button>
+            </div>
           </Card>
 
           {rfq.assignments.length > 0 && (
@@ -147,6 +183,7 @@ export default function Assign() {
                       <p className="truncate font-semibold text-ink-800">{a.supplierName}</p>
                       <p className="text-xs text-ink-400">{a.type === 'full' ? 'Full RFQ' : `${a.lineIds.length} item(s)`}</p>
                     </div>
+                    <div className="hidden w-40 shrink-0 sm:block"><ScoreBars scores={supMap[a.supplierId]?.scores} compact /></div>
                     <span className={`chip ${a.type === 'full' ? 'bg-brand-50 text-brand-700' : 'bg-amber-50 text-amber-700'}`}>{a.type}</span>
                     <button onClick={() => setRating({ id: a.supplierId, name: a.supplierName })} title="Rate supplier"
                       className="rounded-lg p-1.5 text-ink-400 hover:bg-amber-50 hover:text-amber-600"><Star size={16} /></button>
@@ -219,11 +256,8 @@ export default function Assign() {
                     <p className="text-[10px] uppercase text-ink-400">score</p>
                   </div>
                 </div>
-                <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[10px] text-ink-400">
-                  <span>P {s.scores?.price ?? '—'}</span>
-                  <span>Q {s.scores?.quality ?? '—'}</span>
-                  <span>D {s.scores?.delivery ?? '—'}</span>
-                </div>
+                {/* Always-visible score breakdown — critical for the assign decision. */}
+                <div className="mt-2.5 rounded-lg bg-ink-50/70 p-2"><ScoreBars scores={s.scores} /></div>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {s.tags.slice(0, 5).map((t) => <Tag key={t} tone={activeTag === t ? 'brand' : 'ink'}>{t}</Tag>)}
                 </div>
@@ -238,6 +272,7 @@ export default function Assign() {
         </div>
       </div>
 
+      <ItemsEditor open={editorOpen} rfq={rfq} onClose={() => setEditorOpen(false)} onSaved={onItemsSaved} />
       <RatingDialog supplier={rating} onClose={() => setRating(null)} onSubmit={submitRating} />
 
       {toast && (
@@ -246,6 +281,79 @@ export default function Assign() {
         </div>
       )}
     </div>
+  )
+}
+
+// Add / edit / remove RFQ line items, then persist via PUT /rfqs/:id.
+function ItemsEditor({ open, rfq, onClose, onSaved }) {
+  const [lines, setLines] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [expanded, setExpanded] = useState(null)
+
+  useEffect(() => { if (open) { setLines(rfq.lines.map((l) => ({ ...l }))); setExpanded(null) } }, [open, rfq])
+
+  const upd = (i, k, v) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)))
+  const add = () => setLines((ls) => [...ls, { name: '', spec: '', qty: 1, uom: 'PCS', brand: '', model: '', partNo: '', remark: '', requiredDeliveryDate: '', description: '' }])
+  const remove = (i) => setLines((ls) => ls.filter((_, idx) => idx !== i))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const clean = lines.filter((l) => (l.name || '').trim()).map((l) => ({
+        lineId: l.lineId, itemId: l.itemId || null, name: l.name, spec: l.spec || '', description: l.description || '',
+        qty: Number(l.qty) || 1, uom: l.uom || 'PCS', brand: l.brand || '', model: l.model || '', partNo: l.partNo || '',
+        remark: l.remark || '', requiredDeliveryDate: l.requiredDeliveryDate || '', photo: l.photo || '', attachment: l.attachment || '',
+      }))
+      // Drop any removed lines from existing assignments so they don't dangle.
+      const keptIds = new Set(clean.map((l) => l.lineId).filter(Boolean))
+      const assignments = (rfq.assignments || [])
+        .map((a) => ({ ...a, lineIds: a.lineIds.filter((lid) => keptIds.has(lid)) }))
+        .filter((a) => a.lineIds.length > 0)
+      await Rfqs.update(rfq.id, { lines: clean, assignments })
+      onSaved()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <Drawer open={open} title="Edit items" subtitle="Add, edit or remove RFQ line items." onClose={onClose} width="max-w-xl"
+      footer={<>
+        <button className="btn-outline" onClick={onClose}>Cancel</button>
+        <button className="btn-primary" disabled={saving} onClick={save}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Save items'}</button>
+      </>}>
+      <div className="space-y-2">
+        {lines.map((l, i) => (
+          <div key={i} className="rounded-xl border border-ink-100 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={l.name} onChange={(e) => upd(i, 'name', e.target.value)} placeholder="Item name" className="input min-w-40 flex-1 py-1.5 font-semibold" />
+              <input value={l.spec} onChange={(e) => upd(i, 'spec', e.target.value)} placeholder="spec" className="input w-32 py-1.5" />
+              <input type="number" min="1" value={l.qty} onChange={(e) => upd(i, 'qty', e.target.value)} className="input w-16 py-1.5 text-right" title="Qty" />
+              <input value={l.uom} onChange={(e) => upd(i, 'uom', e.target.value)} placeholder="UOM" className="input w-16 py-1.5" />
+              <button onClick={() => remove(i)} className="rounded-lg p-1.5 text-ink-300 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
+            </div>
+            <button onClick={() => setExpanded(expanded === i ? null : i)} className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+              <ChevronDown size={12} className={`transition ${expanded === i ? 'rotate-180' : ''}`} /> More fields
+            </button>
+            {expanded === i && (
+              <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <input value={l.brand || ''} onChange={(e) => upd(i, 'brand', e.target.value)} placeholder="Brand" className="input py-1.5 text-sm" />
+                  <input value={l.model || ''} onChange={(e) => upd(i, 'model', e.target.value)} placeholder="Model" className="input py-1.5 text-sm" />
+                  <input value={l.partNo || ''} onChange={(e) => upd(i, 'partNo', e.target.value)} placeholder="Part No." className="input py-1.5 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={l.remark || ''} onChange={(e) => upd(i, 'remark', e.target.value)} placeholder="Remark" className="input py-1.5 text-sm" />
+                  <input type="date" value={l.requiredDeliveryDate || ''} onChange={(e) => upd(i, 'requiredDeliveryDate', e.target.value)} title="Required delivery date" className="input py-1.5 text-sm" />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {lines.length === 0 && <p className="py-6 text-center text-sm text-ink-400">No items. Add one below.</p>}
+      </div>
+      <button onClick={add} className="mt-1 inline-flex items-center gap-1.5 rounded-xl border border-dashed border-ink-300 px-3 py-2 text-sm font-semibold text-ink-600 hover:border-brand-300 hover:text-brand-600">
+        <Plus size={15} /> Add item
+      </button>
+    </Drawer>
   )
 }
 

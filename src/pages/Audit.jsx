@@ -1,17 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ShieldCheck, Search, Clock } from 'lucide-react'
-import { auditLog } from '../data/mock'
-import { Card, Avatar } from '../components/ui'
+import { Audit as AuditApi } from '../api/client'
+import { Card, Avatar, Spinner, Empty } from '../components/ui'
+
+const fmtTime = (ts) => new Date(ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 export default function Audit() {
   const [q, setQ] = useState('')
-  const list = auditLog.filter(
-    (a) =>
-      !q ||
-      a.rfq.toLowerCase().includes(q.toLowerCase()) ||
-      a.user.toLowerCase().includes(q.toLowerCase()) ||
-      a.action.toLowerCase().includes(q.toLowerCase()),
-  )
+  const [log, setLog] = useState(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => AuditApi(q ? { q } : undefined).then(setLog), q ? 250 : 0)
+    return () => clearTimeout(t)
+  }, [q])
 
   return (
     <div className="space-y-6">
@@ -32,7 +33,7 @@ export default function Audit() {
           <ul className="mt-4 space-y-2 text-sm text-ink-600">
             <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Role-based access enforced</li>
             <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Supplier data isolated</li>
-            <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Documents encrypted at rest</li>
+            <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Every action logged with old → new</li>
             <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Approval authorization logged</li>
           </ul>
         </Card>
@@ -46,27 +47,31 @@ export default function Audit() {
             </div>
           </div>
 
-          <div className="space-y-1">
-            {list.map((a) => (
-              <div key={a.id} className="flex gap-3 rounded-xl px-2 py-3 hover:bg-ink-50">
-                <Avatar name={a.user === 'System' ? 'SY' : a.user} size={36} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-ink-800">
-                    <span className="font-semibold">{a.user}</span> {a.action.toLowerCase()}
-                    <span className="ml-1.5 font-mono text-xs text-brand-600">{a.rfq}</span>
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
-                    <span className="flex items-center gap-1"><Clock size={12} />{a.time}</span>
-                    <span className="text-ink-300">·</span>
-                    <span>{a.field}:</span>
-                    <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-600 line-through">{a.old}</span>
-                    <span className="text-ink-300">→</span>
-                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">{a.value}</span>
+          {!log ? (
+            <Spinner />
+          ) : log.length === 0 ? (
+            <Empty icon={ShieldCheck} title="No audit entries" hint="Actions you take in the app will appear here." />
+          ) : (
+            <div className="space-y-1">
+              {log.map((a) => (
+                <div key={a.id} className="flex gap-3 rounded-xl px-2 py-3 hover:bg-ink-50">
+                  <Avatar name={a.user === 'System' ? 'SY' : a.user} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-ink-800">
+                      <span className="font-semibold">{a.user}</span> · {a.action}
+                      {a.rfqId && <span className="ml-1.5 font-mono text-xs text-brand-600">{a.rfqId}</span>}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+                      <span className="flex items-center gap-1"><Clock size={12} />{fmtTime(a.at)}</span>
+                      {a.field && <><span className="text-ink-300">·</span><span>{a.field}:</span></>}
+                      {a.old !== '' && a.old !== '—' && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-600 line-through">{a.old}</span>}
+                      {a.value && <><span className="text-ink-300">→</span><span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">{a.value}</span></>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
     </div>

@@ -11,21 +11,22 @@
     "dev:all": "concurrently -k -n web,api -c blue,green \"npm:dev\" \"npm:server\""
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
     "lucide-react": "^0.456.0",
+    "multer": "^2.0.1",
+    "nanoid": "^5.0.9",
+    "openai": "^4.77.0",
+    "papaparse": "^5.4.1",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.9.155",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
     "recharts": "^2.13.3",
-    "express": "^4.21.1",
-    "cors": "^2.8.5",
-    "multer": "^2.0.1",
-    "nanoid": "^5.0.9",
-    "openai": "^4.77.0",
-    "xlsx": "^0.18.5",
-    "papaparse": "^5.4.1",
-    "pdfjs-dist": "^4.9.155",
-    "@napi-rs/canvas": "^0.1.65",
-    "pdf-parse": "^1.1.1"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
