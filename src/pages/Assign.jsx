@@ -293,7 +293,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
   useEffect(() => { if (open) { setLines(rfq.lines.map((l) => ({ ...l }))); setExpanded(null) } }, [open, rfq])
 
   const upd = (i, k, v) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)))
-  const add = () => setLines((ls) => [...ls, { name: '', spec: '', qty: 1, uom: 'PCS', brand: '', model: '', partNo: '', remark: '', requiredDeliveryDate: '', description: '' }])
+  const add = () => setLines((ls) => [...ls, { name: '', spec: '', qty: 1, uom: 'PCS', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', description: '' }])
   const remove = (i) => setLines((ls) => ls.filter((_, idx) => idx !== i))
 
   const save = async () => {
@@ -302,6 +302,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
       const clean = lines.filter((l) => (l.name || '').trim()).map((l) => ({
         lineId: l.lineId, itemId: l.itemId || null, name: l.name, spec: l.spec || '', description: l.description || '',
         qty: Number(l.qty) || 1, uom: l.uom || 'PCS', brand: l.brand || '', model: l.model || '', partNo: l.partNo || '',
+        secondaryRequirements: l.secondaryRequirements || '',
         remark: l.remark || '', requiredDeliveryDate: l.requiredDeliveryDate || '', photo: l.photo || '', attachment: l.attachment || '',
       }))
       // Drop any removed lines from existing assignments so they don't dangle.
@@ -344,6 +345,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
                   <input value={l.remark || ''} onChange={(e) => upd(i, 'remark', e.target.value)} placeholder="Remark" className="input py-1.5 text-sm" />
                   <input type="date" value={l.requiredDeliveryDate || ''} onChange={(e) => upd(i, 'requiredDeliveryDate', e.target.value)} title="Required delivery date" className="input py-1.5 text-sm" />
                 </div>
+                <textarea value={l.secondaryRequirements || ''} onChange={(e) => upd(i, 'secondaryRequirements', e.target.value)} placeholder="Secondary requirements — needed alongside this item (e.g. panel board for a fan)" className="input min-h-14 text-sm" />
               </div>
             )}
           </div>

@@ -30,14 +30,11 @@ const SYSTEM = `You are a meticulous procurement assistant. Extract EVERY purcha
 FIELD SEGREGATION — follow exactly:
 - "name": the CLEAN BASE product name ONLY. No ratings, sizes, options or extra words. e.g. "Inlined cabinet type exhaust fan". Never put the spec in the name.
 - "spec": the short distinguishing specification that makes this item a unique variant — capacity/rating (15kW, 7.5kW), size (5kg, 2.5sqmm), phase, voltage, model, finish, options like "with VFD"/"without VFD". "" if none.
-- "description": ALL remaining details from the row and its columns — motor details, panel-board requirement, zone/area, power requirement, notes, any text in extra columns. Do NOT discard information.
+- "description": remaining details from the row/columns — motor details, zone/area, notes, any text in extra columns. Do NOT discard information.
+- "secondaryRequirements": auxiliary things that must be procured ALONGSIDE this item for it to work — e.g. a panel board for a fan, a control/starter panel, power supply, mounting hardware, cabling, accessories. Write them as a short list. If the document lists such a requirement as its own nearby line, FOLD it into the related item's "secondaryRequirements" instead of making it a standalone item. Use "" when there are none.
 
-WHAT MAKES AN ITEM DISTINCT:
-- Two rows with the SAME name but DIFFERENT spec are DIFFERENT items — capture each.
-- Merge ONLY rows truly identical in BOTH name and spec — then SUM their quantities. Otherwise keep separate.
-
-SECONDARY REQUIREMENTS:
-- Auxiliary requirements ("Panel Board Requirement", "Power Requirement", control panels, infrastructure, accessories) MUST still be captured with "secondary": true. Primary equipment is "secondary": false.
+ONE ITEM PER LINE — DO NOT MERGE:
+- List EVERY line as its OWN item. Do NOT merge or sum duplicates, even if two lines look identical. A later consolidation step groups similar items, so keep each line separate here.
 
 GENERAL:
 - Be EXHAUSTIVE. Capture every item/requirement row in what you are shown.
@@ -59,9 +56,9 @@ const ITEM_SCHEMA = {
           properties: {
             name: { type: 'string' }, spec: { type: 'string' }, quantity: { type: 'number' },
             uom: { type: 'string' }, brand: { type: 'string' }, model: { type: 'string' },
-            partNo: { type: 'string' }, description: { type: 'string' }, secondary: { type: 'boolean' },
+            partNo: { type: 'string' }, description: { type: 'string' }, secondaryRequirements: { type: 'string' },
           },
-          required: ['name', 'spec', 'quantity', 'uom', 'brand', 'model', 'partNo', 'description', 'secondary'],
+          required: ['name', 'spec', 'quantity', 'uom', 'brand', 'model', 'partNo', 'description', 'secondaryRequirements'],
         },
       },
     },
@@ -149,7 +146,7 @@ function naiveParse(text) {
     const name = (cells[0] || line).replace(/^\d+[\).\s]+/, '').trim()
     if (!name || name.length < 2) continue
     const qtyCell = cells.find((c) => /^\d+(\.\d+)?$/.test(c))
-    items.push({ name, spec: '', quantity: qtyCell ? Number(qtyCell) : 1, uom: 'PCS', brand: '', model: '', partNo: '', description: '', secondary: false, pages: [], sources: ['document'] })
+    items.push({ name, spec: '', quantity: qtyCell ? Number(qtyCell) : 1, uom: 'PCS', brand: '', model: '', partNo: '', description: '', secondaryRequirements: '', pages: [], sources: ['document'] })
   }
   return dedup(items)
 }
@@ -169,7 +166,7 @@ async function callModel(client, content, label = '', schema = ITEM_SCHEMA, syst
 // row each item came from.
 const ROW_SYSTEM = SYSTEM + `
 
-INPUT FORMAT: You are given SPREADSHEET ROWS as JSON. Each entry has a "row" number and the cell values keyed by column name. Treat EACH entry as one candidate line item:
+INPUT FORMAT: You are given SPREADSHEET ROWS as JSON. Each entry has a "row" number and the cell values keyed by column name. Return EXACTLY ONE item per purchasable row (do not merge rows):
 - Set "sourceRow" to that entry's "row" number — exactly.
 - If an entry is a section header, sub-total, total, or otherwise not a purchasable item, OMIT it.
 - A single cell may contain MULTIPLE LINES (e.g. a full specification). Keep that content together — put the distinguishing part in "spec" and the rest in "description". Do not split one row into many items unless it genuinely lists several distinct products.`
@@ -187,10 +184,10 @@ const ROW_ITEM_SCHEMA = {
           properties: {
             name: { type: 'string' }, spec: { type: 'string' }, quantity: { type: 'number' },
             uom: { type: 'string' }, brand: { type: 'string' }, model: { type: 'string' },
-            partNo: { type: 'string' }, description: { type: 'string' }, secondary: { type: 'boolean' },
+            partNo: { type: 'string' }, description: { type: 'string' }, secondaryRequirements: { type: 'string' },
             sourceRow: { type: 'number' },
           },
-          required: ['name', 'spec', 'quantity', 'uom', 'brand', 'model', 'partNo', 'description', 'secondary', 'sourceRow'],
+          required: ['name', 'spec', 'quantity', 'uom', 'brand', 'model', 'partNo', 'description', 'secondaryRequirements', 'sourceRow'],
         },
       },
     },
@@ -325,11 +322,21 @@ async function clubItems(client, items) {
   return { clubs, engine: CLUB_MODEL }
 }
 
+// Re-run the clubbing pass over an arbitrary item list — used when a second
+// document is appended so the Clubbed view groups across ALL accumulated items.
+// `items` should carry pages/sources so the clubbed groups keep their provenance.
+export async function clusterItems(items = []) {
+  if (!process.env.OPENAI_API_KEY || items.length < 2) return { clubs: null, engine: null }
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const { clubs, engine } = await clubItems(client, items)
+  return { clubs, clubEngine: engine }
+}
+
 export async function extractItems(extraction) {
   const hasKey = !!process.env.OPENAI_API_KEY
   if (!hasKey) {
     const text = extraction.text || ''
-    return { items: dedup(naiveParse(text)), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used naive parser.', pages: 1, chunks: 1 }
+    return { items: naiveParse(text), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used naive parser.', pages: 1, chunks: 1 }
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -357,10 +364,11 @@ export async function extractItems(extraction) {
     }
   })
 
-  // Stitch in document order, then de-duplicate exact name+spec across chunks.
-  const merged = []
-  perChunk.forEach((arr) => arr.forEach((it) => merged.push(it)))
-  const items = dedup(merged)
+  // Stitch in document order. NO de-duplication here — the Basic view shows
+  // every individual line/row as its own item with its own provenance. The
+  // Clubbed view (below) is what groups similar entries.
+  const items = []
+  perChunk.forEach((arr) => arr.forEach((it) => items.push(it)))
 
   // Clubbed view (best-effort; never blocks the basic result).
   const { clubs, engine: clubEngine } = await clubItems(client, items)

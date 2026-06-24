@@ -65,7 +65,7 @@ export default function CreateRfq() {
     setLines((prev) => [...prev, {
       _key: key, itemId: it.itemId || it.id || null, name: it.name, spec: it.spec || '',
       description: it.description || '', brand: it.brand || '', model: it.model || '', partNo: it.partNo || '',
-      uom: it.uom || 'PCS', qty: it.quantity || 1, remark: '', requiredDeliveryDate: '', photo: '', attachment: '',
+      uom: it.uom || 'PCS', qty: it.quantity || 1, secondaryRequirements: it.secondaryRequirements || '', remark: '', requiredDeliveryDate: '', photo: '', attachment: '',
     }])
   }
   const removeItem = (key) => setLines((prev) => prev.filter((x) => x._key !== key))
@@ -108,7 +108,7 @@ export default function CreateRfq() {
         lines: lines.map((l) => ({
           itemId: l.itemId, name: l.name, spec: l.spec, description: l.description,
           qty: Number(l.qty) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
-          remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
+          secondaryRequirements: l.secondaryRequirements, remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
         })),
       })
       // Assign the chosen suppliers (full RFQ). This also moves status to Published.
@@ -251,6 +251,7 @@ export default function CreateRfq() {
                         </div>
                         <input type="date" value={it.requiredDeliveryDate} onChange={(e) => updItem(it._key, 'requiredDeliveryDate', e.target.value)} title="Required delivery date" className="input py-1.5" />
                         <input value={it.remark} onChange={(e) => updItem(it._key, 'remark', e.target.value)} placeholder="Remark" className="input col-span-2 py-1.5" />
+                        <input value={it.secondaryRequirements} onChange={(e) => updItem(it._key, 'secondaryRequirements', e.target.value)} placeholder="Secondary requirements (e.g. panel board for a fan)" className="input col-span-2 py-1.5" />
                         <label className="col-span-2 flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-ink-200 px-2 py-1.5 text-xs text-ink-400 hover:bg-ink-50">
                           <Upload size={13} /> {it.photo || 'Photo (browse)'}
                           <input type="file" hidden accept="image/*" onChange={(e) => e.target.files[0] && updItem(it._key, 'photo', e.target.files[0].name)} />

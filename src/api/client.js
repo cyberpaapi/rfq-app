@@ -84,4 +84,5 @@ export const Notifications = {
   readAll: () => api.post('/notifications/read-all'),
 }
 export const Ingest = (file, params) => api.upload('/ingest', file, params)
+export const Cluster = (items) => api.post('/ingest/cluster', { items })
 export const Tags = () => api.get('/tags')

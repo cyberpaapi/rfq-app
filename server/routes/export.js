@@ -57,6 +57,7 @@ router.get('/po/:rfqId', (req, res) => {
     'Vendor Name': supplierName,
     'Item Name': line.name,
     'Description': [line.spec, line.description].filter(Boolean).join(' — '),
+    'Secondary Requirements': line.secondaryRequirements || '',
     'Brand': line.brand || '',
     'Model': line.model || '',
     'Part No': line.partNo || '',

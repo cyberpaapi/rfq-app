@@ -132,6 +132,7 @@ export default function RfqDetail() {
                         <td className="py-3 pr-3">
                           <p className="font-semibold text-ink-800">{it.name}{it.spec && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-xs font-medium text-ink-500">{it.spec}</span>}</p>
                           {(it.description || it.remark) && <p className="text-xs text-ink-400">{[it.description, it.remark].filter(Boolean).join(' · ')}</p>}
+                          {it.secondaryRequirements && <p className="text-xs text-sky-600">+ also needs: {it.secondaryRequirements}</p>}
                         </td>
                         <td className="py-3 pr-3 text-ink-600">{[it.brand, it.model].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="py-3 pr-3 text-ink-600">{it.partNo || '—'}</td>

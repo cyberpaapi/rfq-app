@@ -20,6 +20,7 @@ const withLineIds = (lines = []) =>
     brand: l.brand || '',
     model: l.model || '',
     partNo: l.partNo || '',
+    secondaryRequirements: l.secondaryRequirements || '',
     photo: l.photo || '',
     remark: l.remark || '',
     requiredDeliveryDate: l.requiredDeliveryDate || '',

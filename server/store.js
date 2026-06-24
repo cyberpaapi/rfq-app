@@ -148,6 +148,7 @@ function line(lineId, p = {}) {
     name: p.name || '', spec: p.spec || '', description: p.description || '',
     qty: p.qty ?? 1, uom: p.uom || 'PCS',
     brand: p.brand || '', model: p.model || '', partNo: p.partNo || '',
+    secondaryRequirements: p.secondaryRequirements || '',
     photo: p.photo || '', remark: p.remark || '', requiredDeliveryDate: p.requiredDeliveryDate || '',
     attachment: p.attachment || '',
   }

@@ -3,7 +3,7 @@ import * as store from '../store.js'
 import { newId } from '../store.js'
 import { upload } from '../lib/upload.js'
 import { extractDocument } from '../lib/extract.js'
-import { extractItems } from '../lib/ai.js'
+import { extractItems, clusterItems } from '../lib/ai.js'
 import { deriveBaseName } from '../lib/tags.js'
 
 const router = Router()
@@ -21,7 +21,6 @@ router.post('/', upload.single('file'), async (req, res) => {
     // detail lives in description. Auxiliary requirements get a "Secondary" tag.
     const reconciled = items.map((it) => {
       const spec = (it.spec || '').trim()
-      const extraTags = it.secondary ? ['Secondary'] : []
       const { item, created } = store.upsertItem({
         name: it.name,
         spec,
@@ -31,7 +30,6 @@ router.post('/', upload.single('file'), async (req, res) => {
         model: it.model,
         partNo: it.partNo,
         description: it.description,
-        extraTags,
       })
       return {
         name: it.name,
@@ -40,15 +38,15 @@ router.post('/', upload.single('file'), async (req, res) => {
         brand: it.brand || '',
         model: it.model || '',
         partNo: it.partNo || '',
-        secondary: !!it.secondary,
+        secondaryRequirements: it.secondaryRequirements || '', // auxiliary items needed alongside (e.g. panel board for a fan)
         quantity: it.quantity ?? 1,
         uom: it.uom || item?.uom || 'PCS',
         itemId: item?.id || null,
         baseName: item?.baseName,
         tags: item?.tags || [],
         isNew: created,
-        pages: it.pages || [],     // page(s) / row-range this item was found on
-        sources: it.sources || [], // human labels, e.g. "Page 3" / "Rows 1-10"
+        pages: it.pages || [],     // page(s) / row(s) this item was found on
+        sources: it.sources || [], // human labels, e.g. "Page 3" / "Row 14"
       }
     })
 
@@ -57,7 +55,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     if (attachTo) {
       rfq = store.find('rfqs', attachTo)
       if (rfq) {
-        const newLines = reconciled.map((r) => ({ lineId: newId('LN'), itemId: r.itemId, name: r.name, spec: r.spec, description: r.description, qty: r.quantity, uom: r.uom, brand: r.brand, model: r.model, partNo: r.partNo, photo: '', remark: '', requiredDeliveryDate: '', attachment: '' }))
+        const newLines = reconciled.map((r) => ({ lineId: newId('LN'), itemId: r.itemId, name: r.name, spec: r.spec, description: r.description, qty: r.quantity, uom: r.uom, brand: r.brand, model: r.model, partNo: r.partNo, secondaryRequirements: r.secondaryRequirements, photo: '', remark: '', requiredDeliveryDate: '', attachment: '' }))
         store.update('rfqs', rfq.id, { lines: [...rfq.lines, ...newLines] })
       }
     }
@@ -96,6 +94,19 @@ router.post('/', upload.single('file'), async (req, res) => {
     })
   } catch (err) {
     console.error('[ingest] error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ingest/cluster  { items: [{name, spec, uom, quantity, pages, sources}] }
+// Re-runs the clubbing pass across an arbitrary (e.g. multi-document) item list.
+router.post('/cluster', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : []
+    const { clubs, clubEngine } = await clusterItems(items)
+    res.json({ clubs: clubs || null, clubEngine: clubEngine || null })
+  } catch (err) {
+    console.error('[cluster] error:', err)
     res.status(500).json({ error: err.message })
   }
 })
