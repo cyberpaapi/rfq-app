@@ -62,6 +62,29 @@ Vercel Hobby permits personal, non-commercial use. Keep Vercel deployment
 protection enabled: the app's role switcher is prototype identity, not production
 authentication. Use real server-side authentication before external client use.
 
+### Roles and access
+
+The profile picker displays roles only; personal demo accounts are removed.
+As **Administrator**, open **Roles & Access** to create roles or edit existing
+roles. Configure individual permissions for procurement, approvals, AI calls,
+exports, reports, audit logs and the supplier portal. Read-only blocks every
+business mutation and AI call; disabled roles cannot access protected APIs.
+Administrator is protected and is the only role allowed to manage roles.
+
+Roles persist alongside procurement data (local JSON or Neon), with version
+checks to reject stale edits. Role changes record their before/after permissions
+and restrictions in the audit history. Browser-only named account settings are
+removed on first load; existing business records and audit history are retained.
+API checks load current permissions on every request. Page guards and controls
+also reflect the selected role. Supplier-only views expose assigned RFQs and
+that supplier's quotes.
+
+This remains a **role preview**, not individual user authentication: trusted
+workspace users can choose roles and supplier profiles. Vercel Authentication
+protects entry to the workspace but does not bind a user to a role. Before
+external multi-user use, replace the preview headers with authenticated server
+sessions and administrator-managed user-to-role/supplier assignments.
+
 ### Supplier evaluation and regression checks
 
 Run `npm test` for evaluation and API regression checks. API tests use a temporary
@@ -161,7 +184,7 @@ Start the app (`npm run dev:all`) and open **http://localhost:5173**. The seed d
    - Each supplier is a **collapsible block that starts collapsed**, showing only the **totals**: total cost, number of line items, and total quantity.
    - **Click a block to expand** it and see exactly which items were awarded to that supplier (qty, rate, line total).
    - A **Grand total** row sums everything.
-4. As a Buyer/Finance role, click **Award this split** to commit the segregated award (status → Awarded). Use **Approve HOD / Approve Finance** (switch identities via "View as") to record approvals.
+4. As a Buyer/Finance role, click **Award this split** to commit the segregated award (status → Awarded). Use **Approve HOD / Approve Finance** (switch via the role picker) to record approvals.
 
 ## 5) Everything else (still live)
 

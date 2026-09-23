@@ -8,10 +8,12 @@ import { FileText, Clock, Award, CalendarX, ArrowUpRight } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
 import { STATUS, fmt } from '../data/mock'
 import { Card, Stat, StatusBadge, SectionTitle, Spinner } from '../components/ui'
+import { useAuth } from '../context/AuthContext'
 
 const COLORS = ['#3563ff', '#22c55e', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
 
 export default function Dashboard() {
+  const { can } = useAuth()
   const [rfqs, setRfqs] = useState(null)
   const [rep, setRep] = useState(null)
 
@@ -33,7 +35,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Procurement Dashboard</h1>
           <p className="mt-1 text-sm text-ink-500">Overview of your RFQ pipeline and suppliers.</p>
         </div>
-        <Link to="/rfqs/new" className="btn-primary">Create RFQ</Link>
+        {can('rfq.create') && <Link to="/rfqs/new" className="btn-primary">Create RFQ</Link>}
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

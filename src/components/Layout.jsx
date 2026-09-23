@@ -6,7 +6,6 @@ import {
   BarChart3, ShieldCheck, Bell, Search, Plus, Menu, X, UserCog, ChevronDown, Check,
   Package, Sparkles, Send, Store,
 } from 'lucide-react'
-import { ROLES, roleColor } from '../data/auth'
 import { useAuth } from '../context/AuthContext'
 import { Notifications } from '../api/client'
 import { Avatar } from './ui'
@@ -21,12 +20,12 @@ const fmtAgo = (ts) => {
 // `perm` may be a string or array (any-of). Omit to always show.
 // `section` groups items under a small heading; `perm` (string|array, any-of) gates visibility.
 const nav = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/rfqs', label: 'RFQs', icon: FileText },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, perm: 'reports.view' },
+  { to: '/rfqs', label: 'RFQs', icon: FileText, perm: 'workspace.view' },
 
   { section: 'Sourcing' },
   { to: '/items', label: 'Item Catalogue', icon: Package, perm: 'rfq.create' },
-  { to: '/import', label: 'AI Import', icon: Sparkles, perm: 'rfq.create' },
+  { to: '/import', label: 'AI Import', icon: Sparkles, perm: ['rfq.create', 'ai.use'], all: true },
   { to: '/assign', label: 'Assign Suppliers', icon: Send, perm: 'rfq.create' },
   { to: '/suppliers', label: 'Suppliers', icon: UsersIcon, perm: 'supplier.manage' },
 
@@ -35,10 +34,10 @@ const nav = [
   { to: '/award', label: 'Evaluation & Award', icon: Award, perm: ['rfq.evaluate', 'award.decide', 'approve.hod', 'approve.finance'] },
 
   { section: 'Portal & Admin' },
-  { to: '/portal', label: 'Supplier Portal', icon: Store, perm: ['portal.access', 'rfq.create'] },
+  { to: '/portal', label: 'Supplier Portal', icon: Store, perm: 'portal.access' },
   { to: '/reports', label: 'Reports', icon: BarChart3, perm: 'reports.view' },
   { to: '/audit', label: 'Audit & Compliance', icon: ShieldCheck, perm: 'audit.view' },
-  { to: '/users', label: 'Users & Access', icon: UserCog, perm: 'users.manage' },
+  { to: '/users', label: 'Roles & Access', icon: UserCog, perm: 'users.manage' },
 ]
 
 function Sidebar({ onNavigate }) {
@@ -46,7 +45,7 @@ function Sidebar({ onNavigate }) {
   const visible = (n) => {
     if (!n.perm) return true
     const perms = Array.isArray(n.perm) ? n.perm : [n.perm]
-    return perms.some((p) => can(p))
+    return n.all ? perms.every((p) => can(p)) : perms.some((p) => can(p))
   }
   // Keep a section header only if at least one item under it is visible.
   const allowed = nav.filter((n, i) => {
@@ -114,25 +113,24 @@ function Sidebar({ onNavigate }) {
       )}
 
       <div className="flex items-center gap-3 border-t border-ink-100 px-4 py-4">
-        <Avatar name={current.name} />
+        <Avatar name={current.label} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-sm font-semibold text-ink-800">{current.name}</p>
-          <p className="truncate text-xs text-ink-400">{ROLES[current.role]?.label}</p>
+          <p className="truncate text-sm font-semibold text-ink-800">{current.label}</p>
+          <p className="truncate text-xs text-ink-400">{!current.enabled ? 'Disabled' : current.readOnly ? 'Read-only access' : 'Active role'}</p>
         </div>
-        <span className={`chip ${roleColor(current.role)} px-2 py-0.5 text-[10px]`}>{current.role}</span>
       </div>
     </div>
   )
 }
 
 function IdentitySwitcher() {
-  const { users, current, switchTo } = useAuth()
+  const { roles, current, switchTo } = useAuth()
   const [open, setOpen] = useState(false)
   return (
     <div className="relative">
-      <button onClick={() => setOpen((v) => !v)} className="btn-outline gap-2 py-2">
-        <Avatar name={current.name} size={22} />
-        <span className="hidden max-w-28 truncate sm:inline">{current.name}</span>
+      <button aria-label="Select role" onClick={() => setOpen((v) => !v)} className="btn-outline gap-2 py-2">
+        <Avatar name={current.label} size={22} />
+        <span className="hidden max-w-48 truncate sm:inline">{current.label}</span>
         <ChevronDown size={15} className="text-ink-400" />
       </button>
       {open && (
@@ -140,19 +138,19 @@ function IdentitySwitcher() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card-lg animate-fade-in">
             <div className="border-b border-ink-100 px-4 py-2.5">
-              <p className="text-xs font-bold uppercase tracking-wide text-ink-400">View as (demo RBAC)</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Preview role</p>
             </div>
             <div className="max-h-80 overflow-auto py-1">
-              {users.map((u) => (
+              {roles.filter((r) => r.enabled).map((u) => (
                 <button
                   key={u.id}
                   onClick={() => { switchTo(u.id); setOpen(false) }}
                   className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-ink-50"
                 >
-                  <Avatar name={u.name} size={32} />
+                  <Avatar name={u.label} size={32} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-ink-800">{u.name}</p>
-                    <p className="truncate text-xs text-ink-400">{ROLES[u.role]?.label}</p>
+                    <p className="truncate text-sm font-semibold text-ink-800">{u.label}</p>
+                    <p className="truncate text-xs text-ink-400">{u.readOnly ? 'Read-only' : u.desc}</p>
                   </div>
                   {u.id === current.id && <Check size={16} className="text-brand-600" />}
                 </button>
@@ -171,12 +169,12 @@ export default function Layout({ children }) {
   const [notifications, setNotifications] = useState([])
   const loc = useLocation()
   useEffect(() => { track('ui.navigation', `Opened ${loc.pathname}`) }, [loc.pathname])
-  const { can } = useAuth()
+  const { can, current } = useAuth()
   const unread = notifications.filter((n) => n.unread).length
 
   const loadNotifications = () => Notifications.list().then(setNotifications).catch(() => {})
   // Refresh on navigation so newly-triggered events show up.
-  useEffect(() => { loadNotifications() }, [loc.pathname])
+  useEffect(() => { if (can('workspace.view')) loadNotifications() }, [loc.pathname])
 
   const markAllRead = async () => {
     await Notifications.readAll().catch(() => {})
@@ -226,7 +224,7 @@ export default function Layout({ children }) {
                     <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
                       <p className="text-sm font-bold">Notifications</p>
                       <div className="flex items-center gap-2">
-                        {unread > 0 && <button onClick={markAllRead} className="text-xs font-semibold text-brand-600 hover:text-brand-700">Mark all read</button>}
+                        {unread > 0 && !current.readOnly && <button onClick={markAllRead} className="text-xs font-semibold text-brand-600 hover:text-brand-700">Mark all read</button>}
                         <button onClick={() => setBell(false)}><X size={16} className="text-ink-400" /></button>
                       </div>
                     </div>

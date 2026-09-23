@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Download, UploadCloud, Loader2, FileText, PackageCheck, AlertCircle, Store } from 'lucide-react'
 import { Rfqs } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
-// Public, login-free page reached via a generated RFQ link (/r/:id). A supplier
-// downloads the RFQ, types their name, and uploads their response document.
+// Generated response link inside the protected workspace. Supplier-only roles
+// submit through the assigned supplier portal instead.
 export default function RfqRespond() {
+  const { can } = useAuth()
   const { id } = useParams()
   const [rfq, setRfq] = useState(undefined) // undefined = loading, null = not found
   const [name, setName] = useState('')
@@ -50,7 +52,7 @@ export default function RfqRespond() {
             <div>
               <p className="text-sm font-semibold text-ink-700">1. Download the RFQ</p>
               <p className="mb-2 text-xs text-ink-400">Get the item list (with an empty Unit Price column to fill in).</p>
-              <a href={Rfqs.exportRfqItemsUrl(id)} className="btn-outline"><Download size={16} /> Download RFQ (.xlsx)</a>
+              {can('data.export') && <a href={Rfqs.exportRfqItemsUrl(id)} className="btn-outline"><Download size={16} /> Download RFQ (.xlsx)</a>}
             </div>
 
             <div className="border-t border-ink-100 pt-4">
@@ -72,7 +74,8 @@ export default function RfqRespond() {
 
             {error && <div className="flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
 
-            <button className="btn-primary w-full" disabled={busy || !name.trim() || !file} onClick={submit}>
+            {!can('ai.use') && <p className="text-sm text-amber-700">This role cannot use AI document extraction.</p>}
+            <button className="btn-primary w-full" disabled={busy || !can('ai.use') || !name.trim() || !file} onClick={submit}>
               {busy ? <><Loader2 size={16} className="animate-spin" /> Reading your document…</> : <><UploadCloud size={16} /> Submit response</>}
             </button>
           </div>

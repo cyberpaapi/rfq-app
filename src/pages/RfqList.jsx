@@ -4,19 +4,20 @@ import { Search, Plus, SlidersHorizontal, FileText } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
 import { STATUS, fmt } from '../data/mock'
 import { Card, StatusBadge, Empty, Spinner } from '../components/ui'
+import { useAuth } from '../context/AuthContext'
 
 const FILTERS = ['All', 'Open', 'Awarded', 'Closed', 'Expired']
 const today = new Date().toISOString().slice(0, 10)
 
 export default function RfqList() {
+  const { can } = useAuth()
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('All')
   const [rfqs, setRfqs] = useState(null)
   const [responded, setResponded] = useState({}) // id -> responded supplier count
 
   useEffect(() => {
-    Rfqs.list().then(setRfqs)
-    Reports().then((r) => setResponded(Object.fromEntries(r.summaryRows.map((s) => [s.id, s.responded]))))
+    Rfqs.list().then((list) => { setRfqs(list); setResponded(Object.fromEntries(list.map((r) => [r.id, r.quoteCount]))) })
   }, [])
 
   const list = useMemo(() => {
@@ -48,7 +49,7 @@ export default function RfqList() {
           <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Request for Quotations</h1>
           <p className="mt-1 text-sm text-ink-500">{rfqs.length} total · {list.length} shown</p>
         </div>
-        <Link to="/rfqs/new" className="btn-primary"><Plus size={16} /> Create RFQ</Link>
+        {can('rfq.create') && <Link to="/rfqs/new" className="btn-primary"><Plus size={16} /> Create RFQ</Link>}
       </div>
 
       <Card className="p-4">

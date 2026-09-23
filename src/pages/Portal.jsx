@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Store, UploadCloud, Loader2, FileText, PackageCheck, LogOut, MessageSquare, Send, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Rfqs, Suppliers } from '../api/client'
 import { Card, Avatar, Spinner, Empty } from '../components/ui'
+import { useAuth } from '../context/AuthContext'
 
 const SESSION_KEY = 'rfq.supplierSession'
 
 export default function Portal() {
+  const { can } = useAuth()
   const [suppliers, setSuppliers] = useState(null)
   const [supplierId, setSupplierId] = useState(() => localStorage.getItem(SESSION_KEY) || '')
   const [rfqs, setRfqs] = useState([])
@@ -124,9 +126,9 @@ export default function Portal() {
         <Card className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} items to quote</span></h2>
-            <label className={`btn-primary cursor-pointer ${uploading ? 'pointer-events-none opacity-70' : ''}`}>
+            <label className={`btn-primary cursor-pointer ${uploading || !can('quote.submit') || !can('ai.use') ? 'pointer-events-none opacity-70' : ''}`}>
               {uploading ? <><Loader2 size={16} className="animate-spin" /> Reading document…</> : <><UploadCloud size={16} /> {alreadyQuoted ? 'Re-upload quote' : 'Upload quote document'}</>}
-              <input type="file" hidden accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+              <input type="file" hidden disabled={!can('quote.submit') || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
             </label>
           </div>
 
@@ -202,7 +204,7 @@ export default function Portal() {
           ) : (
             <div className="flex flex-col gap-2 sm:flex-row">
               <input value={clarifyMsg} onChange={(e) => setClarifyMsg(e.target.value)} className="input flex-1 text-sm" placeholder="e.g. Is Triac dimming acceptable for the wall light?" />
-              <button className="btn-outline" disabled={!clarifyMsg.trim()} onClick={sendClarification}><Send size={14} /> Send</button>
+              <button className="btn-outline" disabled={!can('quote.submit') || !clarifyMsg.trim()} onClick={sendClarification}><Send size={14} /> Send</button>
             </div>
           )}
         </Card>

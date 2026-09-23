@@ -4,6 +4,7 @@ import * as store from '../store.js'
 import { newId } from '../store.js'
 import { addTagUnique, normalize } from '../lib/tags.js'
 import { upload } from '../lib/upload.js'
+import { roleCan } from '../../shared/roles.js'
 
 const router = Router()
 
@@ -50,6 +51,7 @@ router.get('/', (req, res) => {
   }
   if (tag) list = list.filter((s) => s.tags.some((t) => normalize(t) === normalize(tag)))
   if (category && category !== 'All') list = list.filter((s) => s.category === category)
+  if (!roleCan(req.accessRole, 'workspace.view')) return res.json(list.filter((s) => s.portalProfile).map(({ id, name, category, portalProfile }) => ({ id, name, category, portalProfile })))
   res.json(list)
 })
 

@@ -7,6 +7,7 @@ import { recordAction } from './lib/diagnostics.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createCloudMiddleware, createPostgresDatabase } from './lib/cloud-store.js'
 import { deriveBaseName, addTagUnique, normalize } from './lib/tags.js'
+import { seedRoles } from '../shared/roles.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.RFQ_DATA_DIR || join(__dirname, 'data')
@@ -18,6 +19,7 @@ const now = Date.now()
 const day = (n) => new Date(now + n * DAY).toISOString().slice(0, 10)
 
 const seed = () => ({
+  roles: seedRoles(),
   suppliers: [
     { id: 'SUP-001', name: 'A', portalProfile: true, category: 'Electronics', email: 'sales@a.co', phone: '+91 98200 11111', location: 'Mumbai, IN', qualified: true, rating: 4.7, scores: { price: 78, quality: 92, delivery: 85 }, ratings: [], previouslyInvited: true, tags: ['Wall Light', 'Spike Light', 'LED'], notes: 'Preferred lighting vendor.', createdAt: now },
     { id: 'SUP-002', name: 'B', portalProfile: true, category: 'Electronics', email: 'rfq@b.com', phone: '+91 99000 22222', location: 'Pune, IN', qualified: true, rating: 4.4, scores: { price: 88, quality: 80, delivery: 76 }, ratings: [], previouslyInvited: true, tags: ['Foot Light', 'Flood Light', 'LED'], notes: '', createdAt: now },
@@ -247,6 +249,11 @@ export function reset() {
 
 // ---- generic collection access -------------------------------------------
 export const all = (coll) => { ensure(); return currentDb()[coll] }
+export function getRoles() {
+  ensure()
+  if (!currentDb().roles) { currentDb().roles = seedRoles(); flush() }
+  return currentDb().roles
+}
 export const find = (coll, id) => { ensure(); return currentDb()[coll].find((x) => x.id === id) }
 
 export function insert(coll, doc) {

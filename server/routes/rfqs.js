@@ -9,6 +9,7 @@ import { extractQuote, matchQuoteLines, scoreQuality, recommendBestPerItem } fro
 import { isPriced, validateAward } from '../../shared/evaluation.js'
 import { recordAction } from '../lib/diagnostics.js'
 import { documentDownload } from '../lib/documents.js'
+import { roleCan } from '../../shared/roles.js'
 
 const router = Router()
 const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)
@@ -41,7 +42,11 @@ const withLineIds = (lines = []) =>
 // Pull the buyer name off the request (demo auth passes it as a header).
 const actor = (req) => req.get('x-user-name') || req.body?.actor || 'System'
 
-router.get('/', (_req, res) => res.json(store.all('rfqs')))
+router.get('/', (req, res) => {
+  const internal = roleCan(req.accessRole, 'workspace.view')
+  const list = store.all('rfqs').filter((r) => internal || r.assignments?.some((a) => a.supplierId === req.supplierId))
+  res.json(list.map((r) => internal ? { ...r, quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id).length } : { id: r.id, title: r.title, status: r.status, assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
+})
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
 const stripFile = (q) => { const { fileData, fileBlob, ...rest } = q; return { ...rest, hasFile: !!fileData || !!fileBlob, fileExpiresAt: fileBlob?.expiresAt || null } }
@@ -50,6 +55,11 @@ router.get('/:id', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id).map(stripFile)
+  if (!roleCan(req.accessRole, 'workspace.view')) {
+    const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
+    const lineIds = new Set(assignments.flatMap((a) => a.lineIds))
+    return res.json({ id: rfq.id, title: rfq.title, status: rfq.status, deadline: rfq.deadline, assignments, lines: rfq.lines.filter((l) => lineIds.has(l.lineId)), quotes: quotes.filter((q) => q.supplierId === req.supplierId) })
+  }
   res.json({ ...rfq, recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
 })
 
@@ -220,6 +230,7 @@ router.post('/:id/forward-evaluation', (req, res) => {
 
 router.post('/', (req, res) => {
   const b = req.body || {}
+  if (b.status && b.status !== 'Draft') return res.status(400).json({ error: 'Create a draft, then use the publish or award workflow.' })
   const rfq = {
     id: newId('RFQ'),
     title: b.title || 'Untitled RFQ',
@@ -291,6 +302,7 @@ router.post('/:id/assign', (req, res) => {
 
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   if (supplier.qualified === false) return res.status(400).json({ error: 'Supplier is not qualified.' })
+  if (rfq.status === 'Draft' && !roleCan(req.accessRole, 'rfq.publish')) return res.status(403).json({ error: 'Inviting suppliers to a draft requires Publish RFQ permission.' })
   if (!['full', 'partial'].includes(type) || !Array.isArray(lineIds)) return res.status(400).json({ error: 'Invalid assignment.' })
   const targetIds = type === 'full' ? rfq.lines.map((l) => l.lineId) : [...new Set(lineIds)]
   if (!targetIds.length || targetIds.some((id) => !rfq.lines.some((l) => l.lineId === id))) return res.status(400).json({ error: 'Select valid RFQ items.' })

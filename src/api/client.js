@@ -3,11 +3,10 @@ import { put as putBlob } from '@vercel/blob/client'
 import { MAX_UPLOAD_BYTES, validateUpload } from '../../shared/uploads'
 const base = '/api'
 
-// The current demo user's name is sent so the backend can attribute audit
-// entries. AuthContext keeps this in sync on identity switch.
-let actorName = 'System'
-export const setActor = (name) => { actorName = name || 'System' }
-const authHeaders = () => ({ 'x-user-name': actorName })
+// AuthContext keeps the selected preview role and audit label in sync.
+let activeRole = 'admin', actorName = 'Administrator'
+export const setActiveRole = (id, label) => { activeRole = id; actorName = label || id }
+const authHeaders = () => ({ 'x-role-key': activeRole, 'x-user-name': actorName, 'x-supplier-id': localStorage.getItem('rfq.supplierSession') || '' })
 const validateFileSize = (file) => {
   if (file.size > MAX_UPLOAD_BYTES) throw new Error('This app accepts files up to 50 MB.')
 }
@@ -58,7 +57,7 @@ export const api = {
 }
 
 // Absolute URL for file-download endpoints (opened in a new tab / window).
-export const fileUrl = (path, params) => base + path + qs(params)
+export const fileUrl = (path, params) => base + path + qs({ ...params, accessRole: activeRole })
 
 // Small hook-free helpers
 export const Suppliers = {

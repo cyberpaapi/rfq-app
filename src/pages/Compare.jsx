@@ -5,8 +5,10 @@ import { GitCompareArrows, FileSpreadsheet, Sparkles, Loader2, ChevronDown, Arro
 import { Rfqs, Reports } from '../api/client'
 import { fmt } from '../data/mock'
 import { Card, Spinner } from '../components/ui'
+import { useAuth } from '../context/AuthContext'
 
 export default function Compare() {
+  const { can, current } = useAuth()
   const nav = useNavigate()
   const [params] = useSearchParams()
   const requestedId = params.get('rfq')
@@ -31,9 +33,8 @@ export default function Compare() {
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2600) }
 
   useEffect(() => {
-    Promise.all([Rfqs.list(), Reports()]).then(([rfqs, rep]) => {
-      const responded = Object.fromEntries(rep.summaryRows.map((s) => [s.id, s.responded]))
-      const cands = rfqs.filter((r) => (responded[r.id] || 0) >= 2)
+    Rfqs.list().then((rfqs) => {
+      const cands = rfqs.filter((r) => r.quoteCount >= 2)
       setCandidates(cands)
       setRfqId(cands.some((r) => r.id === requestedId) ? requestedId : cands[0]?.id || '')
     }).catch((e) => setError(e.message))
@@ -127,7 +128,7 @@ export default function Compare() {
           </select>
           {/* Download a supplier's original response */}
           <div className="relative">
-            <button className="btn-outline" disabled={!withFile.length} onClick={() => setDlOpen((v) => !v)}><FileDown size={16} /> Download response <ChevronDown size={14} /></button>
+            <button className="btn-outline" disabled={!can('data.export') || !withFile.length} onClick={() => setDlOpen((v) => !v)}><FileDown size={16} /> Download response <ChevronDown size={14} /></button>
             {dlOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setDlOpen(false)} />
@@ -144,10 +145,10 @@ export default function Compare() {
               </>
             )}
           </div>
-          <button className="btn-outline" onClick={runScore} disabled={scoring || recommending || saving || !!error || !!rfq?.award}>{scoring ? <><Loader2 size={16} className="animate-spin" /> Scoring…</> : <><Sparkles size={16} /> Score quality (AI)</>}</button>
-          <button className="btn-outline" onClick={runRecommend} disabled={scoring || recommending || saving || !!error || !!rfq?.award} title={`Weighted: price ${RECO_WEIGHTS.price}% · quality ${RECO_WEIGHTS.quality}% · delivery ${RECO_WEIGHTS.delivery}%`}>{recommending ? <><Loader2 size={16} className="animate-spin" /> Choosing…</> : <><Wand2 size={16} /> Process best suggestion</>}</button>
-          <button className="btn-outline" onClick={() => window.open(Rfqs.exportComparisonUrl(rfqId), '_blank')}><FileSpreadsheet size={16} /> Download comparison</button>
-          <button className="btn-primary" onClick={forward} disabled={busy || scoring || recommending || saving || !!error || !!rfq?.award}>{busy ? <Loader2 size={16} className="animate-spin" /> : <>Forward to Evaluation <ArrowRight size={16} /></>}</button>
+          <button className="btn-outline" onClick={runScore} disabled={!can('ai.use') || scoring || recommending || saving || !!error || !!rfq?.award}>{scoring ? <><Loader2 size={16} className="animate-spin" /> Scoring…</> : <><Sparkles size={16} /> Score quality (AI)</>}</button>
+          <button className="btn-outline" onClick={runRecommend} disabled={!can('ai.use') || scoring || recommending || saving || !!error || !!rfq?.award} title={`Weighted: price ${RECO_WEIGHTS.price}% · quality ${RECO_WEIGHTS.quality}% · delivery ${RECO_WEIGHTS.delivery}%`}>{recommending ? <><Loader2 size={16} className="animate-spin" /> Choosing…</> : <><Wand2 size={16} /> Process best suggestion</>}</button>
+          <button disabled={!can('data.export')} className="btn-outline" onClick={() => window.open(Rfqs.exportComparisonUrl(rfqId), '_blank')}><FileSpreadsheet size={16} /> Download comparison</button>
+          <button className="btn-primary" onClick={forward} disabled={current.readOnly || busy || scoring || recommending || saving || !!error || !!rfq?.award}>{busy ? <Loader2 size={16} className="animate-spin" /> : <>Forward to Evaluation <ArrowRight size={16} /></>}</button>
         </div>
       </div>
 
@@ -159,7 +160,7 @@ export default function Compare() {
             {supIds.map((sid) => (
               <label key={sid} className="flex items-center gap-1.5">
                 <span className="text-ink-500">{nameOf(sid)}</span>
-                <input disabled={scoring || recommending || busy || !!rfq?.award} type="date" onChange={(e) => setEtaAll(sid, e.target.value)} className="input w-40 py-1 text-xs" />
+                <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="date" onChange={(e) => setEtaAll(sid, e.target.value)} className="input w-40 py-1 text-xs" />
               </label>
             ))}
             <span className="ml-auto text-xs text-ink-400">Applies to every item; edit any cell individually below.</span>
@@ -211,15 +212,15 @@ export default function Compare() {
                           return (
                             <Fragment key={sid}>
                               <td className={`border-l border-ink-100 px-2 py-2 text-right ${win ? 'bg-emerald-50' : ''}`}>
-                                <input disabled={scoring || recommending || busy || !!rfq?.award} type="number" min="0" step="0.01" value={c.l?.rate ?? ''} onChange={(e) => setCell(sid, row.line.lineId, { rate: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { rate: e.target.value })} className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
+                                <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="number" min="0" step="0.01" value={c.l?.rate ?? ''} onChange={(e) => setCell(sid, row.line.lineId, { rate: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { rate: e.target.value })} className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                               </td>
                               <td className={`px-2 py-2 text-right font-semibold ${win ? 'bg-emerald-50 text-emerald-700' : 'text-ink-700'}`}>{c.total != null ? fmt(c.total) : '—'}</td>
                               <td className={`px-2 py-2 ${row.fastestEta === sid ? 'bg-sky-50' : ''}`}>
-                                <input disabled={scoring || recommending || busy || !!rfq?.award} type="date" value={c.l?.eta || ''} onChange={(e) => setCell(sid, row.line.lineId, { eta: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { eta: e.target.value })} className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
+                                <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="date" value={c.l?.eta || ''} onChange={(e) => setCell(sid, row.line.lineId, { eta: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { eta: e.target.value })} className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                                 {!c.l?.eta && <span className="text-xs text-ink-300">—</span>}
                               </td>
                               <td className={`px-2 py-2 text-right ${row.qualityWinner === sid ? 'bg-violet-50 font-semibold text-violet-700' : ''}`}>
-                                <input disabled={scoring || recommending || busy || !!rfq?.award} type="number" min="0" max="99" value={c.l?.qualityScore ?? ''} placeholder="—" onChange={(e) => setCell(sid, row.line.lineId, { qualityScore: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { qualityScore: e.target.value })} className="w-12 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
+                                <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="number" min="0" max="99" value={c.l?.qualityScore ?? ''} placeholder="—" onChange={(e) => setCell(sid, row.line.lineId, { qualityScore: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { qualityScore: e.target.value })} className="w-12 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                               </td>
                             </Fragment>
                           )
@@ -232,7 +233,7 @@ export default function Compare() {
                               return (
                                 <div key={sid} className={`rounded px-1.5 py-1 text-xs ${row.qualityWinner === sid ? 'bg-violet-50' : 'bg-ink-50'}`}>
                                   <span className="font-semibold text-ink-700">{nameOf(sid)}:</span>{' '}
-                                  <input disabled={scoring || recommending || busy || !!rfq?.award} value={l?.specNotes ?? ''} placeholder="add notes…" onChange={(e) => setCell(sid, row.line.lineId, { specNotes: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { specNotes: e.target.value })} className="w-[calc(100%-4rem)] rounded border border-transparent bg-transparent px-1 hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
+                                  <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} value={l?.specNotes ?? ''} placeholder="add notes…" onChange={(e) => setCell(sid, row.line.lineId, { specNotes: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { specNotes: e.target.value })} className="w-[calc(100%-4rem)] rounded border border-transparent bg-transparent px-1 hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                                 </div>
                               )
                             })}

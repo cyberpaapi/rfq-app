@@ -31,9 +31,8 @@ export default function Award() {
   const [allocation, setAllocation] = useState(null) // lineId -> supplierId
 
   useEffect(() => {
-    Promise.all([Rfqs.list(), Reports(), Suppliers.list()]).then(([rfqs, rep, sups]) => {
-      const responded = Object.fromEntries(rep.summaryRows.map((s) => [s.id, s.responded]))
-      const cands = rfqs.filter((r) => (responded[r.id] || 0) >= 2 || r.status === 'Awarded')
+    Promise.all([Rfqs.list(), Suppliers.list()]).then(([rfqs, sups]) => {
+      const cands = rfqs.filter((r) => r.quoteCount >= 2 || r.status === 'Awarded')
       setCandidates(cands)
       setRfqId(cands.some((r) => r.id === requestedId) ? requestedId : cands[0]?.id || '')
       setSuppliers(Object.fromEntries(sups.map((s) => [s.id, s])))
@@ -290,7 +289,7 @@ export default function Award() {
             <Card className="p-5">
               <SectionTitle action={
                 method === 'ai'
-                  ? <button className="btn-primary py-1.5 text-xs" disabled={busy || totalWeight <= 0} onClick={runAiRecommend}><Wand2 size={14} /> {allocation ? 'Re-run AI' : 'Run AI Recommendation'}</button>
+                  ? <button className="btn-primary py-1.5 text-xs" disabled={!can('ai.use') || !can('rfq.evaluate') || busy || totalWeight <= 0} onClick={runAiRecommend}><Wand2 size={14} /> {allocation ? 'Re-run AI' : 'Run AI Recommendation'}</button>
                   : method === 'weighted'
                     ? <button className="btn-primary py-1.5 text-xs" disabled={busy || totalWeight <= 0} onClick={aiEvaluate}><Sparkles size={14} /> Evaluate quotes</button>
                     : <button className="btn-primary py-1.5 text-xs" disabled={busy} onClick={segregate}><Split size={14} /> Segregate</button>

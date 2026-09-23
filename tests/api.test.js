@@ -15,7 +15,7 @@ test('procurement API regression checks on isolated data', async (t) => {
   server.stderr.on('data', (x) => { output += x })
   t.after(async () => { const exited = once(server, 'exit'); server.kill(); await exited; await rm(data, { recursive: true, force: true }) })
   const request = async (path, body, method = 'POST') => {
-    const res = await fetch(`http://localhost:${port}/api${path}`, { method, headers: { 'Content-Type': 'application/json' }, ...(method === 'GET' ? {} : { body: JSON.stringify(body || {}) }) })
+    const res = await fetch(`http://localhost:${port}/api${path}`, { method, headers: { 'Content-Type': 'application/json', 'x-role-key': 'admin' }, ...(method === 'GET' ? {} : { body: JSON.stringify(body || {}) }) })
     return { status: res.status, data: await res.json(), requestId: res.headers.get('x-request-id') }
   }
   for (let i = 0; i < 100; i++) {
@@ -24,6 +24,44 @@ test('procurement API regression checks on isolated data', async (t) => {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   let rfq
+  await t.test('shared roles enforce restrictions and protect Administrator', async () => {
+    const asRole = async (path, role, body, method = body ? 'POST' : 'GET', supplierId = '') => {
+      const response = await fetch(`http://localhost:${port}/api${path}`, { method, headers: { 'Content-Type': 'application/json', 'x-role-key': role, 'x-supplier-id': supplierId }, ...(body ? { body: JSON.stringify(body) } : {}) })
+      return { status: response.status, data: await response.json() }
+    }
+    const roles = await request('/roles', null, 'GET')
+    assert.equal(roles.data.length, 6)
+    const created = await request('/roles', { label: 'Restricted Reviewer', permissions: ['workspace.view', 'rfq.evaluate'], readOnly: true })
+    assert.equal(created.status, 201)
+    const key = created.data.id
+    assert.equal((await asRole('/rfqs', key)).status, 200)
+    assert.equal((await asRole('/rfqs', key, { title: 'Denied' })).status, 403)
+    assert.equal((await asRole('/rfqs/RFQ-2026-0042/recommend', key, {})).status, 403)
+    assert.equal((await asRole('/uploads/prepare', key, { target: '/ingest' })).status, 403)
+    assert.equal((await asRole('/reports', key)).status, 403)
+    assert.equal((await asRole('/export/comparison/RFQ-2026-0042', key)).status, 403)
+    assert.equal((await asRole('/roles', key, { label: 'Escalation', permissions: [] })).status, 403)
+    assert.equal((await request('/roles/admin', { label: 'Changed', permissions: [], version: 1 }, 'PUT')).status, 403)
+    const changed = await request(`/roles/${key}`, { ...created.data, enabled: false }, 'PUT')
+    assert.equal(changed.status, 200)
+    assert.equal((await asRole('/rfqs', key)).status, 403)
+    assert.equal((await request(`/roles/${key}`, created.data, 'PUT')).status, 409)
+    assert.equal((await asRole('/rfqs', '')).status, 403)
+    assert.equal((await asRole('/rfqs', 'unknown')).status, 403)
+    const own = await asRole('/rfqs/RFQ-2026-0042', 'supplier', null, 'GET', 'SUP-001')
+    assert.equal(own.status, 200)
+    assert.ok(own.data.quotes.every((q) => q.supplierId === 'SUP-001'))
+    assert.equal((await asRole('/rfqs/RFQ-2026-0041', 'supplier', null, 'GET', 'SUP-001')).status, 403)
+    assert.equal((await asRole('/rfqs/RFQ-2026-0042/quote', 'supplier', { supplierId: 'SUP-002' }, 'POST', 'SUP-001')).status, 403)
+    assert.equal((await asRole('/uploads/prepare', 'supplier', { target: '/rfqs/RFQ-2026-0041/quote-upload', name: 'quote.csv', size: 10 }, 'POST', 'SUP-001')).status, 403)
+    const creator = await request('/roles', { label: 'Draft Author', permissions: ['workspace.view', 'rfq.create'] })
+    const draft = await asRole('/rfqs', creator.data.id, { title: 'Draft only', lines: [{ name: 'Lamp', qty: 1 }] })
+    assert.equal(draft.status, 201)
+    assert.equal((await asRole(`/rfqs/${draft.data.id}/assign`, creator.data.id, { supplierId: 'SUP-001' })).status, 403)
+    assert.equal((await asRole(`/rfqs/${draft.data.id}/approve/`, creator.data.id, { role: 'finance', decision: 'approved' })).status, 403)
+    assert.equal((await asRole(`/rfqs/${draft.data.id}/recommend/`, creator.data.id, {})).status, 403)
+    assert.equal((await asRole('/rfqs', creator.data.id, { status: 'Awarded' })).status, 400)
+  })
   await t.test('create RFQ, reject invalid assignments, assign suppliers', async () => {
     const result = await request('/rfqs', { title: 'Regression fixture', lines: [{ name: 'Lamp', qty: 2 }, { name: 'Cable', qty: 3 }] })
     assert.equal(result.status, 201); rfq = result.data

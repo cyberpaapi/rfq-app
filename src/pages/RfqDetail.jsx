@@ -96,7 +96,7 @@ export default function RfqDetail() {
           <p className="mt-2 max-w-2xl text-sm text-ink-600">{rfq.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>
+          {can('rfq.evaluate') && <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>}
           {rfq.status === STATUS.DRAFT && can('rfq.publish') && (
             <button className="btn-primary" disabled={busy} onClick={() => setStatus(STATUS.PUBLISHED)}><Send size={16} /> Publish</button>
           )}
@@ -190,15 +190,15 @@ export default function RfqDetail() {
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <label className="text-xs font-medium text-ink-500">Expected</label>
-                      <input type="date" value={d.expectedDate || ''} disabled={d.status === 'delivered' || busy}
+                      <input type="date" value={d.expectedDate || ''} disabled={!can('rfq.create') || d.status === 'delivered' || busy}
                         onChange={(e) => updateDelivery({ supplierId: d.supplierId, expectedDate: e.target.value })}
                         className="input w-40 py-1.5 text-sm" />
                       {d.status !== 'delivered' ? (
-                        <button className="btn-primary py-1.5 text-xs" disabled={busy} onClick={() => updateDelivery({ supplierId: d.supplierId, deliver: true })}><Truck size={13} /> Mark delivered</button>
+                        <button className="btn-primary py-1.5 text-xs" disabled={!can('rfq.create') || busy} onClick={() => updateDelivery({ supplierId: d.supplierId, deliver: true })}><Truck size={13} /> Mark delivered</button>
                       ) : d.rated ? (
                         <span className="chip bg-ink-100 text-ink-500"><Star size={12} className="fill-amber-400 text-amber-400" /> Rated</span>
                       ) : (
-                        <button className="btn-outline py-1.5 text-xs" onClick={() => setRating(d)}><Star size={13} /> Rate supplier</button>
+                        <button disabled={!can('rfq.create')} className="btn-outline py-1.5 text-xs" onClick={() => setRating(d)}><Star size={13} /> Rate supplier</button>
                       )}
                     </div>
                   </div>

@@ -294,7 +294,7 @@ export default function CreateRfq() {
           ) : (
             <div className="flex gap-2">
               <button className="btn-outline" disabled={saving || lines.length === 0} onClick={() => save(false)}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Save as Draft'}</button>
-              <button className="btn-primary" disabled={saving || lines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish RFQ</>}</button>
+              <button className="btn-primary" disabled={!can('rfq.publish') || saving || lines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish RFQ</>}</button>
             </div>
           )}
         </div>

@@ -1,6 +1,8 @@
 import express from 'express'
 import logs from './routes/logs.js'
 import uploads from './routes/uploads.js'
+import roles from './routes/roles.js'
+import { accessControl } from './lib/access.js'
 import { requestLogging } from './lib/diagnostics.js'
 import cors from 'cors'
 import * as store from './store.js'
@@ -27,14 +29,17 @@ app.get('/api/health', (_req, res) =>
   }),
 )
 
-app.use('/api/logs', logs)
-app.use('/api/uploads', uploads)
 
 app.use('/api', (req, res, next) => {
   if (process.env.DATABASE_URL) return store.cloudPersistence(req, res, next)
   if (process.env.VERCEL) return res.status(503).json({ error: 'Hosted database is not configured.' })
   next()
 })
+
+app.use('/api', accessControl)
+app.use('/api/roles', roles)
+app.use('/api/logs', logs)
+app.use('/api/uploads', uploads)
 
 app.get('/api/tags', (_req, res) => res.json(store.allTags()))
 app.post('/api/reset', (_req, res) => { store.reset(); res.json({ ok: true }) })
