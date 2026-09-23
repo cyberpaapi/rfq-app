@@ -42,7 +42,8 @@ function setCookie(req, res, token = '') {
 export function publicAccount(account) {
   if (!account) return null
   const { id, username, label, desc, enabled, readOnly, permissions, supplierId, color, version } = account
-  return { id, username, label, desc, enabled, readOnly, permissions, supplierId, color, version }
+  return { id, username, label, desc, enabled, readOnly, permissions, supplierId, color, version,
+    passwordAvailable: !!account.passwordCiphertext }
 }
 
 export function accountForRequest(req) {
