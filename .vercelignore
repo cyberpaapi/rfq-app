@@ -1,0 +1,8 @@
+.env*
+!.env.example
+server/data/
+tests/
+.agents/
+.claude/
+skills-lock.json
+.playwright-mcp/

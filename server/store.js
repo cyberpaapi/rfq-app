@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { nanoid } from 'nanoid'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { createCloudMiddleware, createPostgresDatabase } from './lib/cloud-store.js'
 import { deriveBaseName, addTagUnique, normalize } from './lib/tags.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -184,7 +186,7 @@ export function recordItemPurchases(records = []) {
   let touched = 0
   for (const r of records) {
     if (!r.itemId) continue
-    const item = db.items.find((i) => i.id === r.itemId)
+    const item = currentDb().items.find((i) => i.id === r.itemId)
     if (!item) continue
     const entry = { price: Number(r.price) || 0, qty: r.qty ?? null, supplierId: r.supplierId || null, supplierName: r.supplierName || '', rfqId: r.rfqId || null, rfqTitle: r.rfqTitle || '', at: r.at || Date.now() }
     item.priceHistory = [...(item.priceHistory || []), entry]
@@ -205,15 +207,21 @@ function freshItemId(taken) {
 }
 
 let db = null
+const requestState = new AsyncLocalStorage()
+const currentDb = () => requestState.getStore()?.data || db
+export const runWithState = (state, fn) => requestState.run(state, fn)
+export const cloudPersistence = createCloudMiddleware(createPostgresDatabase(seed), runWithState)
 
 function ensure() {
+  if (requestState.getStore()) return
+  if (process.env.VERCEL) throw new Error('Cloud database context is required.')
   if (db) return
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
   if (existsSync(DB_PATH)) {
     db = JSON.parse(readFileSync(DB_PATH, 'utf8'))
     // Forward-compat: make sure newer collections exist on older db files.
     for (const c of ['suppliers', 'items', 'rfqs', 'quotes', 'audit', 'notifications', 'tags']) {
-      if (!db[c]) db[c] = []
+      if (!currentDb()[c]) currentDb()[c] = []
     }
   } else {
     db = seed()
@@ -222,48 +230,52 @@ function ensure() {
 }
 
 function flush() {
+  const state = requestState.getStore()
+  if (state) { state.dirty = true; return }
   writeFileSync(DB_PATH, JSON.stringify(db, null, 2))
 }
 
 export function reset() {
-  db = seed()
+  const state = requestState.getStore()
+  if (state) state.data = seed()
+  else db = seed()
   flush()
-  return db
+  return currentDb()
 }
 
 // ---- generic collection access -------------------------------------------
-export const all = (coll) => { ensure(); return db[coll] }
-export const find = (coll, id) => { ensure(); return db[coll].find((x) => x.id === id) }
+export const all = (coll) => { ensure(); return currentDb()[coll] }
+export const find = (coll, id) => { ensure(); return currentDb()[coll].find((x) => x.id === id) }
 
 export function insert(coll, doc) {
   ensure()
-  db[coll].push(doc)
+  currentDb()[coll].push(doc)
   flush()
   return doc
 }
 
 export function update(coll, id, patch) {
   ensure()
-  const idx = db[coll].findIndex((x) => x.id === id)
+  const idx = currentDb()[coll].findIndex((x) => x.id === id)
   if (idx === -1) return null
-  db[coll][idx] = { ...db[coll][idx], ...patch, id }
+  currentDb()[coll][idx] = { ...currentDb()[coll][idx], ...patch, id }
   flush()
-  return db[coll][idx]
+  return currentDb()[coll][idx]
 }
 
 export function remove(coll, id) {
   ensure()
-  const before = db[coll].length
-  db[coll] = db[coll].filter((x) => x.id !== id)
+  const before = currentDb()[coll].length
+  currentDb()[coll] = currentDb()[coll].filter((x) => x.id !== id)
   flush()
-  return before !== db[coll].length
+  return before !== currentDb()[coll].length
 }
 
 // ---- audit + notifications (spec 5 & 6) -----------------------------------
 export function logAudit({ rfqId = null, user = 'System', action, field = '', old = '', value = '' }) {
   ensure()
   const entry = { id: newId('AUD'), rfqId, user, action, field, old: String(old ?? ''), value: String(value ?? ''), at: Date.now() }
-  db.audit.push(entry)
+  currentDb().audit.push(entry)
   flush()
   return entry
 }
@@ -271,24 +283,24 @@ export function logAudit({ rfqId = null, user = 'System', action, field = '', ol
 export function notify({ type = 'info', title, rfqId = null }) {
   ensure()
   const n = { id: newId('NTF'), type, title, rfqId, unread: true, at: Date.now() }
-  db.notifications.push(n)
+  currentDb().notifications.push(n)
   flush()
   return n
 }
 
 // ---- global tag registry ---------------------------------------------------
-export function allTags() { ensure(); return db.tags }
+export function allTags() { ensure(); return currentDb().tags }
 
 export function registerTag(tag) {
   ensure()
-  const next = addTagUnique(db.tags, tag)
-  if (next !== db.tags) { db.tags = next; flush() }
-  return db.tags.find((t) => normalize(t) === normalize(tag))
+  const next = addTagUnique(currentDb().tags, tag)
+  if (next !== currentDb().tags) { currentDb().tags = next; flush() }
+  return currentDb().tags.find((t) => normalize(t) === normalize(tag))
 }
 
 export function registerTags(tags = []) {
   for (const t of tags) registerTag(t)
-  return db.tags
+  return currentDb().tags
 }
 
 // ---- items: dedup-aware upsert used by the AI pipeline --------------------
@@ -299,10 +311,10 @@ export function upsertItem(payload) {
   const spec = String(payload.spec || '').trim()
   const idOf = (i) => normalize((i.name || '') + ' | ' + (i.spec || ''))
   const key = normalize(name + ' | ' + spec)
-  const existing = db.items.find((i) => idOf(i) === key)
+  const existing = currentDb().items.find((i) => idOf(i) === key)
   if (existing) return { item: existing, created: false }
   const item = mkItem({
-    id: freshItemId(new Set(db.items.map((i) => i.id))),
+    id: freshItemId(new Set(currentDb().items.map((i) => i.id))),
     name,
     baseName: payload.baseName,
     sku: payload.sku || '',
@@ -315,7 +327,7 @@ export function upsertItem(payload) {
     description: payload.description || '',
     extraTags: payload.extraTags || [],
   })
-  db.items.push(item)
+  currentDb().items.push(item)
   registerTags(item.tags)
   flush()
   return { item, created: true }
@@ -326,9 +338,9 @@ export function upsertItem(payload) {
 // avoiding the per-row scan + per-row file write that makes upsertItem O(n²).
 export function bulkAddItems(payloads = []) {
   ensure()
-  const seen = new Set(db.items.map((i) => normalize(i.name)))
-  const idSeen = new Set(db.items.map((i) => i.id))
-  const tagSeen = new Set(db.tags.map((t) => normalize(t)))
+  const seen = new Set(currentDb().items.map((i) => normalize(i.name)))
+  const idSeen = new Set(currentDb().items.map((i) => i.id))
+  const tagSeen = new Set(currentDb().tags.map((t) => normalize(t)))
   let added = 0, skipped = 0
   for (const p of payloads) {
     const base = String(p.name || '').trim()
@@ -341,10 +353,10 @@ export function bulkAddItems(payloads = []) {
     seen.add(normalize(name))
 
     const item = mkItem({ id: freshItemId(idSeen), name, sku: p.sku || '', category: p.category || 'General', uom: p.uom || 'PCS' })
-    db.items.push(item)
+    currentDb().items.push(item)
     for (const t of item.tags) {
       const nt = normalize(t)
-      if (!tagSeen.has(nt)) { tagSeen.add(nt); db.tags.push(t) }
+      if (!tagSeen.has(nt)) { tagSeen.add(nt); currentDb().tags.push(t) }
     }
     added++
   }

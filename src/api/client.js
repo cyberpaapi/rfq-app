@@ -6,6 +6,10 @@ const base = '/api'
 let actorName = 'System'
 export const setActor = (name) => { actorName = name || 'System' }
 const authHeaders = () => ({ 'x-user-name': actorName })
+const validateFileSize = (file) => {
+  const limit = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES) || 25 * 1024 * 1024
+  if (file.size > limit) throw new Error(`This app accepts files up to ${limit / 1024 / 1024} MB. Split the document or use the local app for larger files.`)
+}
 
 async function handle(res) {
   if (!res.ok) {
@@ -31,12 +35,14 @@ export const api = {
     fetch(base + path, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body || {}) }).then(handle),
   del: (path) => fetch(base + path, { method: 'DELETE', headers: authHeaders() }).then(handle),
   upload: (path, file, params) => {
+    validateFileSize(file)
     const fd = new FormData()
     fd.append('file', file)
     return fetch(base + path + qs(params), { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
   },
   // Multipart upload with extra text fields (e.g. a typed name).
   uploadForm: (path, file, fields = {}) => {
+    validateFileSize(file)
     const fd = new FormData()
     fd.append('file', file)
     Object.entries(fields).forEach(([k, v]) => fd.append(k, v ?? ''))

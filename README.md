@@ -12,6 +12,21 @@ npm run dev:all             # starts the API (:4000) and the web app (:5173) tog
 
 Or run them separately: `npm run server` and `npm run dev`.
 
+### Hosting on Vercel
+
+The Vite frontend and Express API deploy together using `vercel.json` and
+`api/index.js`. Configure `DATABASE_URL` from Neon and the AI environment variables
+above in the Vercel project. Local JSON files and `.env` secrets are excluded from
+deployment. Cloud data starts with the demo seed unless explicitly imported.
+
+Cloud storage uses a Postgres JSON document with a version check for each write.
+Requests operate on isolated snapshots and return HTTP 409 if another request
+changed the data, so concurrent writes cannot silently overwrite each other.
+Local development continues to use the JSON file unless `DATABASE_URL` is set.
+For a larger multi-user rollout, migrate the document store into relational tables.
+Hosted multipart uploads are limited to 4 MB to stay within Vercel's request
+limit; larger documents can be split or processed locally (25 MB limit).
+
 ### Supplier evaluation and regression checks
 
 Run `npm test` for evaluation and API regression checks. API tests use a temporary
