@@ -111,7 +111,7 @@ export default function RfqDetail() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card className="p-5">
-            <SectionTitle action={<span className="text-xs font-semibold text-ink-400">{rfq.lines.length} lines</span>}>Item Details</SectionTitle>
+            <SectionTitle art="edit" action={<span className="text-xs font-semibold text-ink-400">{rfq.lines.length} lines</span>}>Item Details</SectionTitle>
             {rfq.lines.length === 0 ? (
               <Empty icon="items" title="No item lines on this RFQ" />
             ) : (
@@ -174,7 +174,7 @@ export default function RfqDetail() {
 
           {rfq.deliveries && rfq.deliveries.length > 0 && (
             <Card className="p-5">
-              <SectionTitle action={<span className="text-xs text-ink-400">one bulk shipment per supplier</span>}>Delivery & Supplier Rating</SectionTitle>
+              <SectionTitle art="delivery" action={<span className="text-xs text-ink-400">one bulk shipment per supplier</span>}>Delivery & Supplier Rating</SectionTitle>
               <div className="space-y-3">
                 {rfq.deliveries.map((d) => (
                   <div key={d.supplierId} className="rounded-xl border border-ink-100 p-3">
@@ -210,7 +210,7 @@ export default function RfqDetail() {
 
           {rfq.clarifications && rfq.clarifications.length > 0 && (
             <Card className="p-5">
-              <SectionTitle>Clarifications</SectionTitle>
+              <SectionTitle art="clarification">Clarifications</SectionTitle>
               <div className="space-y-2">
                 {rfq.clarifications.map((c) => (
                   <div key={c.id} className="flex items-start gap-2 rounded-xl bg-ink-50 p-3 text-sm">
@@ -225,7 +225,7 @@ export default function RfqDetail() {
 
         <div className="space-y-6">
           <Card className="p-5">
-            <SectionTitle>RFQ Information</SectionTitle>
+            <SectionTitle art="deadline">RFQ Information</SectionTitle>
             <div className="space-y-4">
               <Meta icon={Calendar} label="Submission Deadline" value={rfq.deadline} />
               <Meta icon={Calendar} label="Validity Until" value={rfq.validity} />
@@ -237,7 +237,7 @@ export default function RfqDetail() {
 
           {(rfq.approvals?.hod || rfq.approvals?.finance) && (
             <Card className="p-5">
-              <SectionTitle>Approvals</SectionTitle>
+              <SectionTitle art="approval">Approvals</SectionTitle>
               <div className="space-y-2 text-sm">
                 {['hod', 'finance'].map((k) => rfq.approvals?.[k] && (
                   <div key={k} className="flex items-center gap-2">
@@ -251,7 +251,7 @@ export default function RfqDetail() {
 
           {rfq.award && rfq.award.type !== 'reject' && (
             <Card className="border-emerald-200 bg-emerald-50/40 p-5">
-              <SectionTitle>Award</SectionTitle>
+              <SectionTitle art="split">Award</SectionTitle>
               <p className="text-sm text-ink-600">Awarded to</p>
               <p className="text-lg font-bold text-ink-900">{rfq.award.type === 'split' ? `${rfq.award.splits?.length} suppliers (split)` : rfq.award.supplierName}</p>
               <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3">
@@ -266,7 +266,7 @@ export default function RfqDetail() {
           )}
 
           <Card className="p-5">
-            <SectionTitle>Attachments</SectionTitle>
+            <SectionTitle art="source">Attachments</SectionTitle>
             {(!rfq.attachments || rfq.attachments.length === 0) ? (
               <p className="text-sm text-ink-400">No supporting documents attached.</p>
             ) : (

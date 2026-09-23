@@ -35,10 +35,10 @@ export function Stat({ icon: Icon, label, value, sub, tone = 'brand' }) {
   )
 }
 
-export function SectionTitle({ children, action }) {
+export function SectionTitle({ children, action, art }) {
   return (
     <div className="mb-4 flex items-center justify-between">
-      <h2 className="text-base font-bold text-ink-900">{children}</h2>
+      <h2 className="flex items-center gap-2 text-base font-bold text-ink-900">{art && <BrandIcon name={art} size={28} />}{children}</h2>
       {action}
     </div>
   )

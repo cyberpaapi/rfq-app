@@ -65,6 +65,10 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.ok(!JSON.stringify(roles.data).includes('passwordHash'))
     const created = await request('/roles', { label: 'Restricted Reviewer', username: 'reviewer', password: 'reviewer-password-123', permissions: ['workspace.view', 'rfq.evaluate'], readOnly: true })
     assert.equal(created.status, 201)
+    const secondAccount = await request('/roles', { label: 'Second Reviewer', username: 'reviewer2', password: 'reviewer2-password-123', permissions: ['workspace.view', 'rfq.evaluate'] })
+    assert.equal(secondAccount.status, 201)
+    assert.equal(secondAccount.data.username, 'reviewer2')
+    assert.equal((await request('/roles', null, 'GET')).data.length, 3)
     const key = created.data.id
     cookies.set(key, (await login('reviewer', 'reviewer-password-123')).cookie)
     assert.equal((await asRole('/rfqs', key)).status, 200)

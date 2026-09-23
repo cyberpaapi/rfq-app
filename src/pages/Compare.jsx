@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { quoteCoverage } from '../../shared/evaluation'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { GitCompareArrows, FileSpreadsheet, Sparkles, Loader2, ChevronDown, ArrowRight, FileDown, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react'
+import { GitCompareArrows, Loader2, ChevronDown, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
 import { fmt } from '../data/mock'
 import { Card, Spinner } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
+import BrandIcon from '../components/BrandIcon'
 
 export default function Compare() {
   const { can, current } = useAuth()
@@ -119,7 +120,7 @@ export default function Compare() {
       {error && <Card className="p-4 text-rose-700">{error} <button onClick={() => { setError(''); load() }} className="underline">Reload saved values</button></Card>}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Quote Comparison</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-ink-900"><BrandIcon name="quote" size={38} /> Quote Comparison</h1>
           <p className="mt-1 text-sm text-ink-500">Editable side-by-side — price, ETA (delivery) and spec quality per supplier.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -128,7 +129,7 @@ export default function Compare() {
           </select>
           {/* Download a supplier's original response */}
           <div className="relative">
-            <button className="btn-outline" disabled={!can('data.export') || !withFile.length} onClick={() => setDlOpen((v) => !v)}><FileDown size={16} /> Download response <ChevronDown size={14} /></button>
+            <button className="btn-outline" disabled={!can('data.export') || !withFile.length} onClick={() => setDlOpen((v) => !v)}><BrandIcon name="export" size={22} /> Download response <ChevronDown size={14} /></button>
             {dlOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setDlOpen(false)} />
@@ -145,9 +146,9 @@ export default function Compare() {
               </>
             )}
           </div>
-          <button className="btn-outline" onClick={runScore} disabled={!can('ai.use') || scoring || recommending || saving || !!error || !!rfq?.award}>{scoring ? <><Loader2 size={16} className="animate-spin" /> Scoring…</> : <><Sparkles size={16} /> Score quality (AI)</>}</button>
-          <button className="btn-outline" onClick={runRecommend} disabled={!can('ai.use') || scoring || recommending || saving || !!error || !!rfq?.award} title={`Weighted: price ${RECO_WEIGHTS.price}% · quality ${RECO_WEIGHTS.quality}% · delivery ${RECO_WEIGHTS.delivery}%`}>{recommending ? <><Loader2 size={16} className="animate-spin" /> Choosing…</> : <><Wand2 size={16} /> Process best suggestion</>}</button>
-          <button disabled={!can('data.export')} className="btn-outline" onClick={() => window.open(Rfqs.exportComparisonUrl(rfqId), '_blank')}><FileSpreadsheet size={16} /> Download comparison</button>
+          <button className="btn-outline" onClick={runScore} disabled={!can('ai.use') || scoring || recommending || saving || !!error || !!rfq?.award}>{scoring ? <><Loader2 size={16} className="animate-spin" /> Scoring…</> : <><BrandIcon name="quality" size={22} /> Score quality (AI)</>}</button>
+          <button className="btn-outline" onClick={runRecommend} disabled={!can('ai.use') || scoring || recommending || saving || !!error || !!rfq?.award} title={`Weighted: price ${RECO_WEIGHTS.price}% · quality ${RECO_WEIGHTS.quality}% · delivery ${RECO_WEIGHTS.delivery}%`}>{recommending ? <><Loader2 size={16} className="animate-spin" /> Choosing…</> : <><BrandIcon name="recommend" size={22} /> Process best suggestion</>}</button>
+          <button disabled={!can('data.export')} className="btn-outline" onClick={() => window.open(Rfqs.exportComparisonUrl(rfqId), '_blank')}><BrandIcon name="export" size={22} /> Download comparison</button>
           <button className="btn-primary" onClick={forward} disabled={current.readOnly || busy || scoring || recommending || saving || !!error || !!rfq?.award}>{busy ? <Loader2 size={16} className="animate-spin" /> : <>Forward to Evaluation <ArrowRight size={16} /></>}</button>
         </div>
       </div>
@@ -156,7 +157,7 @@ export default function Compare() {
         <>
           {/* Whole-consignment ETA per supplier */}
           <Card className="flex flex-wrap items-center gap-4 p-4 text-sm">
-            <span className="font-semibold text-ink-600">Set consignment ETA:</span>
+            <span className="flex items-center gap-1 font-semibold text-ink-600"><BrandIcon name="delivery" size={24} /> Set consignment ETA:</span>
             {supIds.map((sid) => (
               <label key={sid} className="flex items-center gap-1.5">
                 <span className="text-ink-500">{nameOf(sid)}</span>

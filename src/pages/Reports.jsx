@@ -21,15 +21,15 @@ export default function Reports() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon="reports" label="Total Savings" value={fmt(summary.savings)} sub={`${summary.savingsPct}% vs budget`} tone="emerald" />
+        <Stat icon="cost" label="Total Savings" value={fmt(summary.savings)} sub={`${summary.savingsPct}% vs budget`} tone="emerald" />
         <Stat icon="award" label="RFQs Awarded" value={summary.awardedCount} sub="this period" tone="brand" />
         <Stat icon="suppliers" label="Avg Response Rate" value={`${summary.avgResponseRate}%`} tone="violet" />
-        <Stat icon="rfq" label="Open RFQs" value={summary.openRfqs} sub={`${summary.expiredCount} expired`} tone="amber" />
+        <Stat icon="deadline" label="Open RFQs" value={summary.openRfqs} sub={`${summary.expiredCount} expired`} tone="amber" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-5">
-          <SectionTitle>Savings — Budget vs Awarded</SectionTitle>
+          <SectionTitle art="cost">Savings — Budget vs Awarded</SectionTitle>
           {savingsByRfq.length === 0 ? (
             <p className="py-8 text-center text-sm text-ink-400">No awarded RFQs yet.</p>
           ) : (
@@ -52,7 +52,7 @@ export default function Reports() {
         </Card>
 
         <Card className="p-5">
-          <SectionTitle>RFQ Aging</SectionTitle>
+          <SectionTitle art="deadline">RFQ Aging</SectionTitle>
           {aging.length === 0 ? (
             <p className="py-8 text-center text-sm text-ink-400">No open RFQs.</p>
           ) : (
@@ -72,7 +72,7 @@ export default function Reports() {
       </div>
 
       <Card className="p-5">
-        <SectionTitle>Supplier Participation</SectionTitle>
+        <SectionTitle art="rating">Supplier Participation</SectionTitle>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={participation} margin={{ left: -18, right: 8 }}>

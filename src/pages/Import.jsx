@@ -1,14 +1,15 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Sparkles, UploadCloud, FileText, FileSpreadsheet, Image as ImageIcon, File,
+  UploadCloud, FileText, FileSpreadsheet, Image as ImageIcon, File,
   Plus, Loader2, ArrowRight, X, ChevronDown, MapPin,
-  ScanSearch, Boxes, ListChecks, TriangleAlert, FilePlus2, RefreshCw,
+  Boxes, ListChecks, TriangleAlert, FilePlus2, RefreshCw,
 } from 'lucide-react'
 import { Ingest, Rfqs, Cluster } from '../api/client'
 import { Card, Empty } from '../components/ui'
 import DocViewer from '../components/DocViewer'
 import ItemsTable from '../components/ItemsTable'
+import BrandIcon from '../components/BrandIcon'
 
 const iconFor = (name = '') => {
   const e = name.split('.').pop()?.toLowerCase()
@@ -148,7 +149,7 @@ export default function Import() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-ink-900"><Sparkles className="text-brand-500" /> AI Document Import</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-ink-900"><BrandIcon name="upload" size={38} /> AI Document Import</h1>
         <p className="mt-1 text-sm text-ink-500">Big files are split (PDF pages / 10-row spreadsheet blocks) and read in parallel. The <b>Basic view</b> lists every line individually; the <b>Clubbed view</b> groups similar ones.</p>
       </div>
 
@@ -163,7 +164,7 @@ export default function Import() {
               onClick={() => inputRef.current?.click()}
               className={`flex cursor-pointer items-center gap-4 rounded-2xl border-2 border-dashed px-5 py-5 transition ${dragOver ? 'border-brand-400 bg-brand-50/60' : 'border-ink-200 hover:bg-ink-50'}`}
             >
-              <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl ${file ? 'bg-brand-50 text-brand-600' : 'bg-ink-100 text-ink-400'}`}><Icon size={22} /></div>
+              {file ? <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-50 text-brand-600"><Icon size={22} /></div> : <BrandIcon name="upload" size={52} />}
               <div className="min-w-0">
                 {file ? (
                   <><p className="truncate font-semibold text-ink-800">{file.name}</p><p className="text-xs text-ink-400">{(file.size / 1024).toFixed(0)} KB · click to change</p></>
@@ -173,7 +174,7 @@ export default function Import() {
               </div>
               <input ref={inputRef} type="file" hidden accept=".xlsx,.xls,.csv,.txt,.md,.pdf,.png,.jpg,.jpeg,.webp,.gif" onChange={(e) => e.target.files[0] && pick(e.target.files[0])} />
             </div>
-            <button className="btn-primary h-12 px-6" disabled={!file || busy} onClick={() => processFile(file, false)}>{busy ? <><Loader2 size={16} className="animate-spin" /> Processing…</> : <><Sparkles size={16} /> Extract items</>}</button>
+            <button className="btn-primary h-12 px-6" disabled={!file || busy} onClick={() => processFile(file, false)}>{busy ? <><Loader2 size={16} className="animate-spin" /> Processing…</> : <><BrandIcon name="verify" size={22} /> Extract items</>}</button>
           </div>
           {error && <div className="mt-4 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><X size={16} className="mt-0.5 shrink-0" /> {error}</div>}
         </Card>
@@ -206,7 +207,7 @@ export default function Import() {
               {withSecondary > 0 && <span className="chip bg-sky-50 text-sky-700">{withSecondary} with add-ons</span>}
               {meta && <span className="chip bg-ink-100 text-ink-500">extract: {meta.engine}</span>}
               {meta?.clubEngine && <span className="chip bg-ink-100 text-ink-500">club: {meta.clubEngine}</span>}
-              {canVerify && <button onClick={openVerification} className={`btn-outline ${showViewer ? 'border-brand-300 bg-brand-50 text-brand-700' : ''}`}><ScanSearch size={15} /> {showViewer ? 'Close verification' : 'Open Verification'}</button>}
+              {canVerify && <button onClick={openVerification} className={`btn-outline ${showViewer ? 'border-brand-300 bg-brand-50 text-brand-700' : ''}`}><BrandIcon name="verify" size={22} /> {showViewer ? 'Close verification' : 'Open Verification'}</button>}
               {view === 'basic' && <button className="btn-outline" onClick={addRow}><Plus size={15} /> Add item</button>}
             </div>
           </div>

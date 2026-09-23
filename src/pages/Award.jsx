@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts'
-import { Award as AwardIcon, Trophy, Check, X, Scale, Coins, Lock, ShieldCheck, Split, ChevronRight, Sparkles, Wand2 } from 'lucide-react'
+import { Award as AwardIcon, Trophy, Check, X, Lock, ShieldCheck, Split, ChevronRight, Sparkles, Wand2 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { isPriced, quoteCoverage, scoreCandidates } from '../../shared/evaluation'
 import { Rfqs, Suppliers, Reports } from '../api/client'
 import { fmt } from '../data/mock'
 import { Card, SectionTitle, Avatar, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
+import BrandIcon from '../components/BrandIcon'
 
 const CRITERIA = [
   { key: 'price', label: 'Price' },
@@ -217,7 +218,7 @@ export default function Award() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Evaluation & Award</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-ink-900"><BrandIcon name="split" size={38} /> Evaluation & Award</h1>
           <p className="mt-1 text-sm text-ink-500">{rfq.id} — {rfq.title}</p>
         </div>
         <select value={rfqId} onChange={(e) => setRfqId(e.target.value)} disabled={busy} aria-label="Select RFQ" className="input w-auto py-2">
@@ -227,9 +228,9 @@ export default function Award() {
 
       <Card className="p-4">
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => chooseMethod('lowest')} className={`btn ${method === 'lowest' ? 'btn-primary' : 'btn-outline'}`}><Coins size={16} /> Lowest Cost</button>
-          <button onClick={() => chooseMethod('weighted')} className={`btn ${method === 'weighted' ? 'btn-primary' : 'btn-outline'}`}><Scale size={16} /> Weighted Scoring</button>
-          <button onClick={() => chooseMethod('ai')} className={`btn ${method === 'ai' ? 'btn-primary' : 'btn-outline'}`}><Wand2 size={16} /> AI Recommended</button>
+          <button onClick={() => chooseMethod('lowest')} className={`btn ${method === 'lowest' ? 'btn-primary' : 'btn-outline'}`}><BrandIcon name="cost" size={24} /> Lowest Cost</button>
+          <button onClick={() => chooseMethod('weighted')} className={`btn ${method === 'weighted' ? 'btn-primary' : 'btn-outline'}`}><BrandIcon name="weights" size={24} /> Weighted Scoring</button>
+          <button onClick={() => chooseMethod('ai')} className={`btn ${method === 'ai' ? 'btn-primary' : 'btn-outline'}`}><BrandIcon name="recommend" size={24} /> AI Recommended</button>
         </div>
       </Card>
 
@@ -237,7 +238,7 @@ export default function Award() {
         <div className="space-y-6 lg:col-span-2">
           {(method === 'weighted' || method === 'ai') && (
             <Card className="p-5">
-              <SectionTitle action={<span className={`chip ${totalWeight === 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>Total {totalWeight}%</span>}>Scoring Weights{method === 'ai' && <span className="ml-2 text-xs font-normal text-ink-400">— used by the AI recommendation</span>}</SectionTitle>
+              <SectionTitle art="weights" action={<span className={`chip ${totalWeight === 100 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>Total {totalWeight}%</span>}>Scoring Weights{method === 'ai' && <span className="ml-2 text-xs font-normal text-ink-400">— used by the AI recommendation</span>}</SectionTitle>
               <div className="space-y-5">
                 {CRITERIA.map((c) => (
                   <div key={c.key}>
@@ -253,7 +254,7 @@ export default function Award() {
           )}
 
           <Card className="p-5">
-            <SectionTitle>Supplier Ranking</SectionTitle>
+            <SectionTitle art="rating">Supplier Ranking</SectionTitle>
             <p className="mb-3 text-xs text-ink-500">Full RFQ ranking requires a positive price for every item. Weighted scoring uses the current quote total, average item quality and latest delivery date; missing quality or delivery uses supplier history.</p>
             {totals.filter((t) => !t.complete).map((t) => <p key={t.sid} className="mb-2 text-sm text-amber-700">{nameOf(t.sid)}: {t.count}/{rfq.lines.length} items priced — eligible for a split only.</p>)}
             {!eligibleTotals.length && <p className="text-sm text-amber-700">No supplier has a complete qualified quote. Review a split allocation below.</p>}
@@ -287,7 +288,7 @@ export default function Award() {
           {/* Allocation — segregate (lowest) or AI evaluate (weighted); editable via move-to */}
           {!awarded && (
             <Card className="p-5">
-              <SectionTitle action={
+              <SectionTitle art={method === 'ai' ? 'recommend' : method === 'weighted' ? 'weights' : 'split'} action={
                 method === 'ai'
                   ? <button className="btn-primary py-1.5 text-xs" disabled={!can('ai.use') || !can('rfq.evaluate') || busy || totalWeight <= 0} onClick={runAiRecommend}><Wand2 size={14} /> {allocation ? 'Re-run AI' : 'Run AI Recommendation'}</button>
                   : method === 'weighted'
@@ -321,7 +322,7 @@ export default function Award() {
 
         <div className="space-y-6">
           <Card className="p-5">
-            <SectionTitle>Historical Supplier Performance</SectionTitle>
+            <SectionTitle art="rating">Historical Supplier Performance</SectionTitle>
             <div className="h-60">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData} outerRadius={80}>
