@@ -39,7 +39,7 @@ const withLineIds = (lines = []) =>
     attachment: l.attachment || '',
   }))
 
-// Pull the buyer name off the request (demo auth passes it as a header).
+// Access control replaces this header with the authenticated account's role.
 const actor = (req) => req.get('x-user-name') || req.body?.actor || 'System'
 
 router.get('/', (req, res) => {

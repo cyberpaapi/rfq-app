@@ -1,13 +1,12 @@
 import * as store from '../store.js'
 import { roleCan } from '../../shared/roles.js'
+import { accountForRequest } from './auth.js'
 
-// Role selection is a preview inside the Vercel-authenticated workspace, not
-// user authentication. Bind roles to real sessions before external client use.
 export function requiredPermissions(method, path, body = {}) {
   if (typeof path !== 'string') return ['users.manage']
   // Express accepts case variants and trailing slashes for the same endpoint.
   path = path.toLowerCase().replace(/\/+$/, '') || '/'
-  if (path === '/roles') return method === 'GET' ? [] : ['users.manage']
+  if (path === '/roles') return ['users.manage']
   if (path.startsWith('/roles/')) return ['users.manage']
   if (path === '/logs/events' || path === '/uploads/config') return []
   if (path === '/uploads/prepare') return requiredPermissions('POST', body.target || '/invalid', {})
@@ -39,23 +38,23 @@ export function checkAccess(role, method, path, body) {
 }
 export function accessControl(req, res, next) {
   const path = req.path
-  if (req.method === 'GET' && path === '/roles') return next()
-  const key = req.get('x-role-key') || (req.method === 'GET' ? req.query.accessRole : '')
-  const role = store.getRoles().find((r) => r.id === key)
-  if (!checkAccess(role, req.method, path, req.body)) return res.status(403).json({ error: 'Your selected role does not allow this action.' })
+  const active = accountForRequest(req)
+  if (!active) return res.status(401).json({ error: 'Please sign in.' })
+  const role = active.account
+  if (!checkAccess(role, req.method, path, req.body)) return res.status(403).json({ error: 'Your account does not allow this action.' })
   req.accessRole = role
-  req.headers['x-user-name'] = role.label
-  req.supplierId = req.get('x-supplier-id') || ''
+  req.headers['x-user-name'] = role.username
+  req.supplierId = role.supplierId || ''
   const targetPath = path === '/uploads/prepare' ? req.body?.target : path
   if (!roleCan(role, 'workspace.view') && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath)) {
     const id = targetPath.split('/')[2]
     const rfq = store.find('rfqs', id)
-    if (!rfq?.assignments?.some((a) => a.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to the selected supplier.' })
+    if (!rfq?.assignments?.some((a) => a.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to your supplier.' })
     if (req.method !== 'GET') {
       if (/\/respond\/?$/i.test(targetPath)) return res.status(403).json({ error: 'Use your assigned supplier portal to submit this quote.' })
       if (path === '/uploads/prepare') return next()
       const supplied = req.query.supplierId || req.body?.supplierId
-      if (supplied !== req.supplierId) return res.status(403).json({ error: 'The supplier does not match your portal selection.' })
+      if (supplied !== req.supplierId) return res.status(403).json({ error: 'The supplier does not match your account.' })
     }
   }
   next()

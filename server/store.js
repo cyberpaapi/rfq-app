@@ -19,7 +19,10 @@ const now = Date.now()
 const day = (n) => new Date(now + n * DAY).toISOString().slice(0, 10)
 
 const seed = () => ({
-  roles: seedRoles(),
+  authVersion: 2,
+  roles: seedRoles(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'),
+  sessions: [],
+  loginAttempts: [],
   suppliers: [
     { id: 'SUP-001', name: 'A', portalProfile: true, category: 'Electronics', email: 'sales@a.co', phone: '+91 98200 11111', location: 'Mumbai, IN', qualified: true, rating: 4.7, scores: { price: 78, quality: 92, delivery: 85 }, ratings: [], previouslyInvited: true, tags: ['Wall Light', 'Spike Light', 'LED'], notes: 'Preferred lighting vendor.', createdAt: now },
     { id: 'SUP-002', name: 'B', portalProfile: true, category: 'Electronics', email: 'rfq@b.com', phone: '+91 99000 22222', location: 'Pune, IN', qualified: true, rating: 4.4, scores: { price: 88, quality: 80, delivery: 76 }, ratings: [], previouslyInvited: true, tags: ['Foot Light', 'Flood Light', 'LED'], notes: '', createdAt: now },
@@ -213,6 +216,7 @@ let db = null
 const requestState = new AsyncLocalStorage()
 const currentDb = () => requestState.getStore()?.data || db
 export const runWithState = (state, fn) => requestState.run(state, fn)
+export const commitOnError = () => { const state = requestState.getStore(); if (state) state.commitOnError = true }
 export const cloudPersistence = createCloudMiddleware(createPostgresDatabase(seed), runWithState)
 
 function ensure() {
@@ -223,7 +227,7 @@ function ensure() {
   if (existsSync(DB_PATH)) {
     db = JSON.parse(readFileSync(DB_PATH, 'utf8'))
     // Forward-compat: make sure newer collections exist on older db files.
-    for (const c of ['suppliers', 'items', 'rfqs', 'quotes', 'audit', 'notifications', 'tags']) {
+    for (const c of ['suppliers', 'items', 'rfqs', 'quotes', 'audit', 'notifications', 'tags', 'sessions', 'loginAttempts']) {
       if (!currentDb()[c]) currentDb()[c] = []
     }
   } else {
@@ -251,7 +255,18 @@ export function reset() {
 export const all = (coll) => { ensure(); return currentDb()[coll] }
 export function getRoles() {
   ensure()
-  if (!currentDb().roles) { currentDb().roles = seedRoles(); flush() }
+  // The old role picker had public, preloaded identities. Keep procurement data,
+  // but require the admin to create each non-admin account from scratch.
+  if (currentDb().authVersion !== 2) {
+    currentDb().roles = seedRoles(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin')
+    currentDb().sessions = []
+    currentDb().loginAttempts = []
+    currentDb().authVersion = 2
+    flush()
+  }
+  if (!currentDb().roles) { currentDb().roles = seedRoles(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'); flush() }
+  if (!currentDb().sessions) { currentDb().sessions = []; flush() }
+  if (!currentDb().loginAttempts) { currentDb().loginAttempts = []; flush() }
   return currentDb().roles
 }
 export const find = (coll, id) => { ensure(); return currentDb()[coll].find((x) => x.id === id) }

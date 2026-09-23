@@ -1,10 +1,10 @@
 import express from 'express'
+import auth from './routes/auth.js'
 import logs from './routes/logs.js'
 import uploads from './routes/uploads.js'
 import roles from './routes/roles.js'
 import { accessControl } from './lib/access.js'
 import { requestLogging } from './lib/diagnostics.js'
-import cors from 'cors'
 import * as store from './store.js'
 import suppliers from './routes/suppliers.js'
 import items from './routes/items.js'
@@ -18,7 +18,6 @@ import exporter from './routes/export.js'
 const app = express()
 
 app.use(requestLogging)
-app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
 app.get('/api/health', (_req, res) =>
@@ -36,6 +35,19 @@ app.use('/api', (req, res, next) => {
   next()
 })
 
+// Browser writes must come from the app's same-origin client. A custom header
+// blocks cross-site forms while the session cookie stays HttpOnly.
+app.use('/api', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next()
+  if (req.get('x-opro-request') !== '1') return res.status(403).json({ error: 'Invalid request origin.' })
+  const origin = req.get('origin')
+  if (origin) {
+    try { if (new URL(origin).host !== req.get('host')) return res.status(403).json({ error: 'Invalid request origin.' }) }
+    catch { return res.status(403).json({ error: 'Invalid request origin.' }) }
+  }
+  next()
+})
+app.use('/api/auth', auth)
 app.use('/api', accessControl)
 app.use('/api/roles', roles)
 app.use('/api/logs', logs)

@@ -1,15 +1,10 @@
 let events = [], timer, sending = false
-const actor = () => {
-  try {
-    return localStorage.getItem('rfq.activeRoleLabel') || 'System'
-  } catch { return 'System' }
-}
 function flush() {
   clearTimeout(timer); timer = null
   if (sending || !events.length) return
   const batch = events.splice(0, 25)
   sending = true
-  fetch('/api/logs/events', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', 'x-user-name': actor(), 'x-role-key': localStorage.getItem('rfq.activeRole') || 'admin' }, body: JSON.stringify({ events: batch }) })
+  fetch('/api/logs/events', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', 'x-opro-request': '1' }, body: JSON.stringify({ events: batch }) })
     .catch(() => {}).finally(() => { sending = false; if (events.length) timer = setTimeout(flush, 1500) })
 }
 export function track(event, message) {

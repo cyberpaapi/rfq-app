@@ -5,12 +5,13 @@ import { checkAccess } from '../server/lib/access.js'
 
 test('role definitions contain no named accounts and admin cannot be delegated', () => {
   const roles = seedRoles()
-  assert.equal(roles.length, 6)
+  assert.equal(roles.length, 1)
+  assert.equal(roles[0].id, 'admin')
   assert.ok(roles.every((r) => !r.name && !r.email && !r.password))
-  assert.throws(() => validateRole({ label: 'Administrator', permissions: [] }, roles), /already exists/)
-  assert.throws(() => validateRole({ label: 'Backdoor', permissions: ['users.manage'] }, roles), /reserved/)
-  assert.throws(() => validateRole({ label: 'Backdoor', permissions: '*' }, roles), /valid permissions/)
-  assert.throws(() => validateRole({ label: 'Buyer', permissions: ['rfq.create'] }, roles), /workspace/)
+  assert.throws(() => validateRole({ label: 'Administrator', username: 'other', permissions: [] }, roles), /already exists/)
+  assert.throws(() => validateRole({ label: 'Backdoor', username: 'backdoor', permissions: ['users.manage'] }, roles), /valid permissions/)
+  assert.throws(() => validateRole({ label: 'Backdoor', username: 'backdoor', permissions: '*' }, roles), /valid permissions/)
+  assert.throws(() => validateRole({ label: 'Buyer', username: 'buyer', permissions: ['rfq.create'] }, roles), /workspace/)
 })
 
 test('read-only, disabled, AI and export restrictions are applied by API policy', () => {

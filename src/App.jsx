@@ -39,7 +39,7 @@ function Guard({ permission, children }) {
 function Home() {
   const { can, current } = useAuth()
   if (can('reports.view')) return <Dashboard />
-  return <Card className="p-8"><h1 className="text-2xl font-bold">{current.label}</h1><p className="mt-2 text-sm text-ink-500">{current.enabled ? 'Choose an available page from the sidebar. Ask Administrator for any additional access.' : 'This role is disabled. Select an enabled role to continue.'}</p></Card>
+  return <Card className="p-8"><h1 className="text-2xl font-bold">{current.label}</h1><p className="mt-2 text-sm text-ink-500">Choose an available page from the sidebar. Ask Administrator for any additional access.</p></Card>
 }
 
 function AppShell() {

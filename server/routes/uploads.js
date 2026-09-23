@@ -3,8 +3,7 @@ import { prepareUpload } from '../lib/documents.js'
 import { MAX_UPLOAD_BYTES } from '../../shared/uploads.js'
 
 const router = Router()
-// Hosted routes are protected by Vercel Authentication for ALL deployments.
-// Do not disable that protection without replacing it with application auth.
+// Application sessions and permissions are enforced before either upload route.
 router.get('/config', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   res.json({ direct: !!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.VERCEL, maxBytes: MAX_UPLOAD_BYTES })

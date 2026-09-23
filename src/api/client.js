@@ -3,10 +3,7 @@ import { put as putBlob } from '@vercel/blob/client'
 import { MAX_UPLOAD_BYTES, validateUpload } from '../../shared/uploads'
 const base = '/api'
 
-// AuthContext keeps the selected preview role and audit label in sync.
-let activeRole = 'admin', actorName = 'Administrator'
-export const setActiveRole = (id, label) => { activeRole = id; actorName = label || id }
-const authHeaders = () => ({ 'x-role-key': activeRole, 'x-user-name': actorName, 'x-supplier-id': localStorage.getItem('rfq.supplierSession') || '' })
+const writeHeaders = () => ({ 'x-opro-request': '1' })
 const validateFileSize = (file) => {
   if (file.size > MAX_UPLOAD_BYTES) throw new Error('This app accepts files up to 50 MB.')
 }
@@ -16,7 +13,9 @@ async function handle(res) {
     let msg = res.statusText
     try { msg = (await res.json()).error || msg } catch { /* ignore */ }
     const requestId = res.headers.get('x-request-id')
-    throw new Error(requestId ? `${msg} (request ${requestId})` : msg)
+    const error = new Error(requestId ? `${msg} (request ${requestId})` : msg)
+    error.status = res.status
+    throw error
   }
   return res.status === 204 ? null : res.json()
 }
@@ -32,32 +31,38 @@ let uploadConfig
 async function sendFile(path, file, params, fields = {}) {
   validateFileSize(file)
   validateUpload({ name: file.name, size: file.size, target: path })
-  uploadConfig ||= fetch(base + '/uploads/config', { headers: authHeaders() }).then(handle).catch((error) => { uploadConfig = null; throw error })
+  uploadConfig ||= fetch(base + '/uploads/config').then(handle).catch((error) => { uploadConfig = null; throw error })
   const config = await uploadConfig
   if (config.direct) {
-    const grant = await fetch(base + '/uploads/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name: file.name, size: file.size, target: path }) }).then(handle)
+    const grant = await fetch(base + '/uploads/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json', ...writeHeaders() }, body: JSON.stringify({ name: file.name, size: file.size, target: path }) }).then(handle)
     await putBlob(grant.pathname, file, { access: 'private', token: grant.clientToken, contentType: grant.contentType, multipart: true })
-    return fetch(base + path + qs(params), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...fields, uploadReceipt: grant.receipt }) }).then(handle)
+    return fetch(base + path + qs(params), { method: 'POST', headers: { 'Content-Type': 'application/json', ...writeHeaders() }, body: JSON.stringify({ ...fields, uploadReceipt: grant.receipt }) }).then(handle)
   }
   const fd = new FormData(); fd.append('file', file)
   Object.entries(fields).forEach(([k, v]) => fd.append(k, v ?? ''))
-  return fetch(base + path + qs(params), { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
+  return fetch(base + path + qs(params), { method: 'POST', headers: writeHeaders(), body: fd }).then(handle)
 }
 
 export const api = {
-  get: (path, params) => fetch(base + path + qs(params), { headers: authHeaders() }).then(handle),
+  get: (path, params) => fetch(base + path + qs(params)).then(handle),
   post: (path, body) =>
-    fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body || {}) }).then(handle),
+    fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...writeHeaders() }, body: JSON.stringify(body || {}) }).then(handle),
   put: (path, body) =>
-    fetch(base + path, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body || {}) }).then(handle),
-  del: (path) => fetch(base + path, { method: 'DELETE', headers: authHeaders() }).then(handle),
+    fetch(base + path, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...writeHeaders() }, body: JSON.stringify(body || {}) }).then(handle),
+  del: (path) => fetch(base + path, { method: 'DELETE', headers: writeHeaders() }).then(handle),
   upload: (path, file, params) => sendFile(path, file, params),
   // Multipart upload with extra text fields (e.g. a typed name).
   uploadForm: (path, file, fields = {}) => sendFile(path, file, undefined, fields),
 }
 
 // Absolute URL for file-download endpoints (opened in a new tab / window).
-export const fileUrl = (path, params) => base + path + qs({ ...params, accessRole: activeRole })
+export const fileUrl = (path, params) => base + path + qs(params)
+
+export const Auth = {
+  me: () => api.get('/auth/me'),
+  login: (username, password) => api.post('/auth/login', { username, password }),
+  logout: () => api.post('/auth/logout'),
+}
 
 // Small hook-free helpers
 export const Suppliers = {

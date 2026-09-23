@@ -51,7 +51,7 @@ router.get('/', (req, res) => {
   }
   if (tag) list = list.filter((s) => s.tags.some((t) => normalize(t) === normalize(tag)))
   if (category && category !== 'All') list = list.filter((s) => s.category === category)
-  if (!roleCan(req.accessRole, 'workspace.view')) return res.json(list.filter((s) => s.portalProfile).map(({ id, name, category, portalProfile }) => ({ id, name, category, portalProfile })))
+  if (!roleCan(req.accessRole, 'workspace.view')) return res.json(list.filter((s) => s.id === req.supplierId).map(({ id, name, category }) => ({ id, name, category })))
   res.json(list)
 })
 

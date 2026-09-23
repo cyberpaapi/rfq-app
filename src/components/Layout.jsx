@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, Users as UsersIcon, GitCompareArrows, Award,
-  BarChart3, ShieldCheck, Bell, Search, Plus, Menu, X, UserCog, ChevronDown, Check,
+  BarChart3, ShieldCheck, Bell, Search, Plus, Menu, X, UserCog, LogOut,
   Package, Sparkles, Send, Store,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -37,7 +37,7 @@ const nav = [
   { to: '/portal', label: 'Supplier Portal', icon: Store, perm: 'portal.access' },
   { to: '/reports', label: 'Reports', icon: BarChart3, perm: 'reports.view' },
   { to: '/audit', label: 'Audit & Compliance', icon: ShieldCheck, perm: 'audit.view' },
-  { to: '/users', label: 'Roles & Access', icon: UserCog, perm: 'users.manage' },
+  { to: '/users', label: 'Accounts & Access', icon: UserCog, perm: 'users.manage' },
 ]
 
 function Sidebar({ onNavigate }) {
@@ -116,49 +116,9 @@ function Sidebar({ onNavigate }) {
         <Avatar name={current.label} />
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-sm font-semibold text-ink-800">{current.label}</p>
-          <p className="truncate text-xs text-ink-400">{!current.enabled ? 'Disabled' : current.readOnly ? 'Read-only access' : 'Active role'}</p>
+          <p className="truncate text-xs text-ink-400">{current.username}{current.readOnly ? ' · Read-only' : ''}</p>
         </div>
       </div>
-    </div>
-  )
-}
-
-function IdentitySwitcher() {
-  const { roles, current, switchTo } = useAuth()
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button aria-label="Select role" onClick={() => setOpen((v) => !v)} className="btn-outline gap-2 py-2">
-        <Avatar name={current.label} size={22} />
-        <span className="hidden max-w-48 truncate sm:inline">{current.label}</span>
-        <ChevronDown size={15} className="text-ink-400" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card-lg animate-fade-in">
-            <div className="border-b border-ink-100 px-4 py-2.5">
-              <p className="text-xs font-bold uppercase tracking-wide text-ink-400">Preview role</p>
-            </div>
-            <div className="max-h-80 overflow-auto py-1">
-              {roles.filter((r) => r.enabled).map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => { switchTo(u.id); setOpen(false) }}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-ink-50"
-                >
-                  <Avatar name={u.label} size={32} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-ink-800">{u.label}</p>
-                    <p className="truncate text-xs text-ink-400">{u.readOnly ? 'Read-only' : u.desc}</p>
-                  </div>
-                  {u.id === current.id && <Check size={16} className="text-brand-600" />}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
     </div>
   )
 }
@@ -169,7 +129,7 @@ export default function Layout({ children }) {
   const [notifications, setNotifications] = useState([])
   const loc = useLocation()
   useEffect(() => { track('ui.navigation', `Opened ${loc.pathname}`) }, [loc.pathname])
-  const { can, current } = useAuth()
+  const { can, current, logout } = useAuth()
   const unread = notifications.filter((n) => n.unread).length
 
   const loadNotifications = () => Notifications.list().then(setNotifications).catch(() => {})
@@ -245,7 +205,8 @@ export default function Layout({ children }) {
               )}
             </div>
 
-            <IdentitySwitcher />
+            <span className="hidden items-center gap-2 rounded-xl border border-ink-200 px-3 py-2 text-sm font-semibold text-ink-700 sm:inline-flex"><Avatar name={current.label} size={22} />{current.label}</span>
+            <button type="button" className="btn-outline px-3 py-2" onClick={logout} aria-label="Sign out"><LogOut size={16} /><span className="hidden sm:inline">Sign out</span></button>
 
             {can('rfq.create') && (
               <NavLink to="/rfqs/new" className="btn-primary hidden sm:inline-flex">

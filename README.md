@@ -28,8 +28,10 @@ Uploads support **50 MB per file** locally and on Vercel. Hosted browsers upload
 directly to a private Vercel Blob store with a short-lived, size-limited token;
 the API receives a signed reference and retrieves the file for processing.
 Connect a private Blob store and configure `BLOB_READ_WRITE_TOKEN` for this flow.
-Keep Vercel Authentication enabled for **All Deployments**, including production:
-it authenticates the token endpoint and the rest of this prototype's API.
+Set `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD_HASH` in both the
+local `.env` and Vercel before exposing the production domain. Vercel
+Authentication can stay enabled for preview deployments; production users sign
+in through the app with their administrator-assigned credentials.
 
 Imported source files are removed after processing. Supplier quote originals
 remain downloadable for 15 days through short-lived private download URLs;
@@ -58,32 +60,29 @@ Business audit history is separate and is preserved with the procurement data.
 
 The Vercel Hobby and Neon Free plans have usage limits; this configuration does
 not enable paid upgrades. Existing AI API calls remain separately billable.
-Vercel Hobby permits personal, non-commercial use. Keep Vercel deployment
-protection enabled: the app's role switcher is prototype identity, not production
-authentication. Use real server-side authentication before external client use.
+Vercel Hobby permits personal, non-commercial use.
 
 ### Roles and access
 
-The profile picker displays roles only; personal demo accounts are removed.
-As **Administrator**, open **Roles & Access** to create roles or edit existing
-roles. Configure individual permissions for procurement, approvals, AI calls,
-exports, reports, audit logs and the supplier portal. Read-only blocks every
-business mutation and AI call; disabled roles cannot access protected APIs.
-Administrator is protected and is the only role allowed to manage roles.
+There is one pre-created account: **Administrator**. Sign in with the bootstrap
+username and password. In **Accounts & Access**, create each additional account
+with its own username, password, role name, permissions and restrictions. There
+is no public signup or role picker. Configure access to procurement, approvals,
+AI calls, exports, reports, audit logs and the supplier portal. Link supplier
+accounts to a supplier profile so they can only see their assigned RFQs and
+quotes. Read-only blocks business changes and AI calls; disabled accounts lose
+access immediately. Only Administrator can manage accounts.
 
-Roles persist alongside procurement data (local JSON or Neon), with version
-checks to reject stale edits. Role changes record their before/after permissions
-and restrictions in the audit history. Browser-only named account settings are
-removed on first load; existing business records and audit history are retained.
-API checks load current permissions on every request. Page guards and controls
-also reflect the selected role. Supplier-only views expose assigned RFQs and
-that supplier's quotes.
-
-This remains a **role preview**, not individual user authentication: trusted
-workspace users can choose roles and supplier profiles. Vercel Authentication
-protects entry to the workspace but does not bind a user to a role. Before
-external multi-user use, replace the preview headers with authenticated server
-sessions and administrator-managed user-to-role/supplier assignments.
+Account records persist alongside procurement data (local JSON or Neon), with
+version checks to reject stale edits. Passwords use salted scrypt hashes;
+sessions use HttpOnly, SameSite cookies and expire after 12 hours. Editing,
+disabling or deleting an account revokes its existing sessions. Permission
+changes are audited. The first authenticated request replaces the old public
+demo roles with the single admin account while preserving procurement data.
+API checks load current permissions on every request; page guards and controls
+also reflect them. Admin can reset an account password in its editor. Rotate
+the bootstrap admin password by changing its hash in `.env` and Vercel, then
+redeploying; this invalidates prior admin sessions.
 
 ### Item catalogue
 
@@ -156,7 +155,7 @@ OPENAI_CLUB_MODEL=gpt-5.5       # "clubbed view" consolidation (default)
 
 Start the app (`npm run dev:all`) and open **http://localhost:5173**. The seed data ships an RFQ (`RFQ-2026-0042`, "Landscape Lighting") assigned to suppliers **A / B / C**, with quotes already in from A & B.
 
-> Tip: to restore the seed at any time, run `curl -X POST http://localhost:4000/api/reset` (or delete `server/data/db.json`) and refresh.
+> The reset endpoint requires an authenticated Administrator session. It deletes all procurement data and accounts, so back up first.
 
 ## 1) Items table + parallel extraction + verification (AI Import)
 
@@ -204,7 +203,7 @@ Start the app (`npm run dev:all`) and open **http://localhost:5173**. The seed d
    - Each supplier is a **collapsible block that starts collapsed**, showing only the **totals**: total cost, number of line items, and total quantity.
    - **Click a block to expand** it and see exactly which items were awarded to that supplier (qty, rate, line total).
    - A **Grand total** row sums everything.
-4. As a Buyer/Finance role, click **Award this split** to commit the segregated award (status → Awarded). Use **Approve HOD / Approve Finance** (switch via the role picker) to record approvals.
+4. Sign in with an account granted award or approval permissions to commit the split award or record HOD/Finance approvals.
 
 ## 5) Everything else (still live)
 

@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Store, UploadCloud, Loader2, FileText, PackageCheck, LogOut, MessageSquare, Send, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Store, UploadCloud, Loader2, FileText, PackageCheck, MessageSquare, Send, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Rfqs, Suppliers } from '../api/client'
-import { Card, Avatar, Spinner, Empty } from '../components/ui'
+import { Card, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 
-const SESSION_KEY = 'rfq.supplierSession'
-
 export default function Portal() {
-  const { can } = useAuth()
+  const { can, current } = useAuth()
   const [suppliers, setSuppliers] = useState(null)
-  const [supplierId, setSupplierId] = useState(() => localStorage.getItem(SESSION_KEY) || '')
+  const supplierId = current.supplierId || ''
   const [rfqs, setRfqs] = useState([])
   const [rfqId, setRfqId] = useState('')
   const [rfq, setRfq] = useState(null)
@@ -21,8 +19,6 @@ export default function Portal() {
 
   useEffect(() => { Suppliers.list().then(setSuppliers) }, [])
 
-  // The 3 demo sign-in profiles (A/B/C) — no password.
-  const profiles = (suppliers || []).filter((s) => s.portalProfile)
   const supplier = suppliers?.find((s) => s.id === supplierId)
 
   // Load RFQs assigned to the signed-in supplier.
@@ -40,9 +36,6 @@ export default function Portal() {
     if (!rfqId) { setRfq(null); return }
     Rfqs.get(rfqId).then(setRfq)
   }, [rfqId])
-
-  const signIn = (id) => { localStorage.setItem(SESSION_KEY, id); setSupplierId(id) }
-  const signOut = () => { localStorage.removeItem(SESSION_KEY); setSupplierId(''); setRfq(null) }
 
   const myLines = rfq ? (() => {
     const mine = rfq.assignments.filter((a) => a.supplierId === supplierId).flatMap((a) => a.lineIds)
@@ -68,34 +61,7 @@ export default function Portal() {
 
   if (suppliers === null) return <Card><Spinner /></Card>
 
-  // ---- Sign-in screen --------------------------------------------------------
-  if (!supplierId || !supplier) {
-    return (
-      <div className="mx-auto max-w-lg space-y-5">
-        <div className="rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-6 text-white">
-          <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> Supplier Portal</div>
-          <h1 className="mt-1 text-2xl font-extrabold">Sign in</h1>
-          <p className="mt-1 text-sm text-brand-100">Choose your supplier profile to continue. (Demo — no password.)</p>
-        </div>
-        <Card className="p-5">
-          <p className="mb-3 text-sm font-semibold text-ink-700">Sign in as</p>
-          <div className="space-y-2">
-            {profiles.map((s) => (
-              <button key={s.id} onClick={() => signIn(s.id)} className="flex w-full items-center gap-3 rounded-xl border border-ink-100 p-3 text-left transition hover:border-brand-300 hover:bg-brand-50/50">
-                <Avatar name={s.name} />
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-ink-800">{s.name}</p>
-                  <p className="text-xs text-ink-400">{s.category} · {s.email}</p>
-                </div>
-                <Send size={16} className="text-brand-500" />
-              </button>
-            ))}
-            {profiles.length === 0 && <Empty icon={Store} title="No supplier profiles" hint="Reset the demo data to seed suppliers A/B/C." />}
-          </div>
-        </Card>
-      </div>
-    )
-  }
+  if (!supplierId || !supplier) return <Card className="p-8"><Empty icon={Store} title="No supplier linked" hint="Ask Administrator to link this login to a supplier profile in Accounts & Access." /></Card>
 
   // ---- Signed-in -------------------------------------------------------------
   return (
@@ -106,7 +72,6 @@ export default function Portal() {
           <h1 className="mt-1 text-2xl font-extrabold">Welcome, {supplier.name}</h1>
           <p className="mt-1 text-sm text-brand-100">Upload your quotation document for the RFQs assigned to you.</p>
         </div>
-        <button onClick={signOut} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold backdrop-blur hover:bg-white/25"><LogOut size={15} /> Sign out</button>
       </div>
 
       <Card className="p-4">

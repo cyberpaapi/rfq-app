@@ -47,7 +47,7 @@ export function createCloudMiddleware(database, runWithState) {
       res.end = function (...args) {
         if (finishing) return res
         finishing = true
-        const save = state.dirty && res.statusCode < 400 ? database.commit(state) : Promise.resolve()
+        const save = state.dirty && (res.statusCode < 400 || state.commitOnError) ? database.commit(state) : Promise.resolve()
         save.then(() => end(...args)).catch((error) => {
           console.error('[cloud-store] save failed:', error.message)
           res.statusCode = error.status || 503
