@@ -42,7 +42,7 @@ export default function Audit() {
           {!log ? (
             <Spinner />
           ) : log.length === 0 ? (
-            <Empty icon={ShieldCheck} title="No audit entries" hint="Actions you take in the app will appear here." />
+            <Empty icon="audit" title="No audit entries" hint="Actions you take in the app will appear here." />
           ) : (
             <div className="space-y-1">
               {log.map((a) => (

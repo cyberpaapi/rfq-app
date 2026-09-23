@@ -70,7 +70,7 @@ export default function RfqDetail() {
   if (rfq === null) {
     return (
       <Card className="p-8">
-        <Empty icon={Package} title="RFQ not found" hint={`No record for ${id}`} />
+        <Empty icon="rfq" title="RFQ not found" hint={`No record for ${id}`} />
         <div className="text-center"><Link to="/rfqs" className="btn-outline">Back to RFQs</Link></div>
       </Card>
     )
@@ -113,7 +113,7 @@ export default function RfqDetail() {
           <Card className="p-5">
             <SectionTitle action={<span className="text-xs font-semibold text-ink-400">{rfq.lines.length} lines</span>}>Item Details</SectionTitle>
             {rfq.lines.length === 0 ? (
-              <Empty icon={Package} title="No item lines on this RFQ" />
+              <Empty icon="items" title="No item lines on this RFQ" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -153,7 +153,7 @@ export default function RfqDetail() {
           <Card className="p-5">
             <SectionTitle>Invited Suppliers</SectionTitle>
             {(!rfq.assignments || rfq.assignments.length === 0) ? (
-              <Empty icon={Users} title="No suppliers invited yet" hint="Assign suppliers before publishing." />
+              <Empty icon="suppliers" title="No suppliers invited yet" hint="Assign suppliers before publishing." />
             ) : (
               <div className="space-y-2">
                 {rfq.assignments.map((a) => (

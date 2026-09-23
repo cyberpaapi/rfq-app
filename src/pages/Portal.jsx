@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Store, UploadCloud, Loader2, FileText, PackageCheck, MessageSquare, Send, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Store, UploadCloud, Loader2, PackageCheck, MessageSquare, Send, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Rfqs, Suppliers } from '../api/client'
 import { Card, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
@@ -61,7 +61,7 @@ export default function Portal() {
 
   if (suppliers === null) return <Card><Spinner /></Card>
 
-  if (!supplierId || !supplier) return <Card className="p-8"><Empty icon={Store} title="No supplier linked" hint="Ask Administrator to link this login to a supplier profile in Accounts & Access." /></Card>
+  if (!supplierId || !supplier) return <Card className="p-8"><Empty icon="portal" title="No supplier linked" hint="Ask Administrator to link this login to a supplier profile in Accounts & Access." /></Card>
 
   // ---- Signed-in -------------------------------------------------------------
   return (
@@ -86,7 +86,7 @@ export default function Portal() {
       </Card>
 
       {!rfq ? (
-        rfqs.length > 0 ? <Card><Spinner /></Card> : <Card className="p-6"><Empty icon={FileText} title="Nothing assigned" hint="The buyer hasn't assigned an RFQ to you yet." /></Card>
+        rfqs.length > 0 ? <Card><Spinner /></Card> : <Card className="p-6"><Empty icon="rfq" title="Nothing assigned" hint="The buyer hasn't assigned an RFQ to you yet." /></Card>
       ) : (
         <Card className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

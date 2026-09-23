@@ -77,7 +77,7 @@ export default function RfqList() {
 
       <Card className="overflow-hidden">
         {list.length === 0 ? (
-          <Empty icon={FileText} title="No RFQs match your filters" hint="Try a different search or filter." />
+          <Empty icon="rfq" title="No RFQs match your filters" hint="Try a different search or filter." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

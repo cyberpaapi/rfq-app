@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ArrowRight, LockKeyhole, UserRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import BrandIcon from '../components/BrandIcon'
 
 export default function Login({ error: sessionError = '' }) {
   const { login } = useAuth()
@@ -18,8 +19,8 @@ export default function Login({ error: sessionError = '' }) {
   return <div className="flex min-h-screen items-center justify-center bg-ink-50 px-4 py-10">
     <div className="w-full max-w-md rounded-3xl border border-ink-100 bg-white p-8 shadow-card-lg sm:p-10">
       <div className="mb-8 flex items-center gap-3">
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-600 text-xl font-extrabold text-white">R</span>
-        <div><p className="font-extrabold text-ink-900">RFQ Hub</p><p className="text-xs text-ink-400">OPRO Procurement Suite</p></div>
+        <BrandIcon name="mark" size={48} />
+        <div><p className="font-extrabold text-ink-900">OPRO</p><p className="text-xs text-ink-400">Procurement Suite</p></div>
       </div>
       <h1 className="text-3xl font-extrabold tracking-tight text-ink-900">Sign in</h1>
       <p className="mt-2 text-sm leading-6 text-ink-500">Use the username and password given to you by your administrator.</p>

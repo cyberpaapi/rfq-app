@@ -2,13 +2,12 @@ import { track } from '../diagnostics'
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, FileText, Users as UsersIcon, GitCompareArrows, Award,
-  BarChart3, ShieldCheck, Bell, Search, Plus, Menu, X, UserCog, LogOut,
-  Package, Sparkles, Send, Store,
+  Menu, X, LogOut,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { Notifications } from '../api/client'
 import { Avatar } from './ui'
+import BrandIcon from './BrandIcon'
 
 const fmtAgo = (ts) => {
   const s = Math.floor((Date.now() - ts) / 1000)
@@ -20,24 +19,24 @@ const fmtAgo = (ts) => {
 // `perm` may be a string or array (any-of). Omit to always show.
 // `section` groups items under a small heading; `perm` (string|array, any-of) gates visibility.
 const nav = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, perm: 'reports.view' },
-  { to: '/rfqs', label: 'RFQs', icon: FileText, perm: 'workspace.view' },
+  { to: '/', label: 'Dashboard', art: 'dashboard', end: true, perm: 'reports.view' },
+  { to: '/rfqs', label: 'RFQs', art: 'rfq', perm: 'workspace.view' },
 
   { section: 'Sourcing' },
-  { to: '/items', label: 'Item Catalogue', icon: Package, perm: 'rfq.create' },
-  { to: '/import', label: 'AI Import', icon: Sparkles, perm: ['rfq.create', 'ai.use'], all: true },
-  { to: '/assign', label: 'Assign Suppliers', icon: Send, perm: 'rfq.create' },
-  { to: '/suppliers', label: 'Suppliers', icon: UsersIcon, perm: 'supplier.manage' },
+  { to: '/items', label: 'Item Catalogue', art: 'items', perm: 'rfq.create' },
+  { to: '/import', label: 'AI Import', art: 'ai', perm: ['rfq.create', 'ai.use'], all: true },
+  { to: '/assign', label: 'Assign Suppliers', art: 'assign', perm: 'rfq.create' },
+  { to: '/suppliers', label: 'Suppliers', art: 'suppliers', perm: 'supplier.manage' },
 
   { section: 'Evaluation' },
-  { to: '/compare', label: 'Quote Comparison', icon: GitCompareArrows, perm: 'rfq.evaluate' },
-  { to: '/award', label: 'Evaluation & Award', icon: Award, perm: ['rfq.evaluate', 'award.decide', 'approve.hod', 'approve.finance'] },
+  { to: '/compare', label: 'Quote Comparison', art: 'compare', perm: 'rfq.evaluate' },
+  { to: '/award', label: 'Evaluation & Award', art: 'award', perm: ['rfq.evaluate', 'award.decide', 'approve.hod', 'approve.finance'] },
 
   { section: 'Portal & Admin' },
-  { to: '/portal', label: 'Supplier Portal', icon: Store, perm: 'portal.access' },
-  { to: '/reports', label: 'Reports', icon: BarChart3, perm: 'reports.view' },
-  { to: '/audit', label: 'Audit & Compliance', icon: ShieldCheck, perm: 'audit.view' },
-  { to: '/users', label: 'Accounts & Access', icon: UserCog, perm: 'users.manage' },
+  { to: '/portal', label: 'Supplier Portal', art: 'portal', perm: 'portal.access' },
+  { to: '/reports', label: 'Reports', art: 'reports', perm: 'reports.view' },
+  { to: '/audit', label: 'Audit & Compliance', art: 'audit', perm: 'audit.view' },
+  { to: '/users', label: 'Accounts & Access', art: 'accounts', perm: 'users.manage' },
 ]
 
 function Sidebar({ onNavigate }) {
@@ -59,11 +58,9 @@ function Sidebar({ onNavigate }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white shadow-sm shadow-brand-600/40">
-          <span className="text-lg font-extrabold">R</span>
-        </div>
+        <BrandIcon name="mark" size={42} />
         <div className="leading-tight">
-          <p className="text-sm font-extrabold text-ink-900">RFQ Hub</p>
+          <p className="text-sm font-extrabold text-ink-900">OPRO</p>
           <p className="text-[11px] font-medium text-ink-400">Procurement Suite</p>
         </div>
       </div>
@@ -84,11 +81,10 @@ function Sidebar({ onNavigate }) {
                 }`
               }
             >
-              {({ isActive }) => {
-                const Icon = n.icon
+              {() => {
                 return (
                   <>
-                    <Icon size={18} className={isActive ? 'text-brand-600' : 'text-ink-400 group-hover:text-ink-600'} />
+                    <BrandIcon name={n.art} size={28} />
                     {n.label}
                   </>
                 )
@@ -107,7 +103,7 @@ function Sidebar({ onNavigate }) {
             onClick={onNavigate}
             className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold backdrop-blur hover:bg-white/25"
           >
-            <Plus size={14} /> Create RFQ
+            <BrandIcon name="create" size={19} /> Create RFQ
           </NavLink>
         </div>
       )}
@@ -163,14 +159,14 @@ export default function Layout({ children }) {
           </button>
 
           <div className="relative hidden max-w-md flex-1 sm:block">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+            <BrandIcon name="search" size={21} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" />
             <input className="input pl-9" placeholder="Search RFQ number, supplier, status…" />
           </div>
 
           <div className="flex flex-1 items-center justify-end gap-2">
             <div className="relative">
               <button className="btn-ghost relative px-2.5" onClick={() => setBell((v) => !v)}>
-                <Bell size={19} />
+                <BrandIcon name="bell" size={25} />
                 {unread > 0 && (
                   <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
                     {unread}
@@ -210,7 +206,7 @@ export default function Layout({ children }) {
 
             {can('rfq.create') && (
               <NavLink to="/rfqs/new" className="btn-primary hidden sm:inline-flex">
-                <Plus size={16} /> New RFQ
+                <BrandIcon name="create" size={20} /> New RFQ
               </NavLink>
             )}
           </div>

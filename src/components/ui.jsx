@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { statusStyle } from '../data/mock'
+import BrandIcon from './BrandIcon'
 
 export function Card({ className = '', children, ...props }) {
   return <div {...props} className={`card ${className}`}>{children}</div>
@@ -26,11 +27,9 @@ export function Stat({ icon: Icon, label, value, sub, tone = 'brand' }) {
           <p className="mt-2 text-2xl font-bold text-ink-900">{value}</p>
           {sub && <p className="mt-1 text-xs text-ink-400">{sub}</p>}
         </div>
-        {Icon && (
-          <div className={`grid h-10 w-10 place-items-center rounded-xl ${tones[tone]}`}>
-            <Icon size={20} />
-          </div>
-        )}
+        {Icon && (typeof Icon === 'string'
+          ? <BrandIcon name={Icon} size={44} />
+          : <div className={`grid h-10 w-10 place-items-center rounded-xl ${tones[tone]}`}><Icon size={20} /></div>)}
       </div>
     </Card>
   )
@@ -48,11 +47,9 @@ export function SectionTitle({ children, action }) {
 export function Empty({ icon: Icon, title, hint }) {
   return (
     <div className="grid place-items-center py-16 text-center">
-      {Icon && (
-        <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-ink-100 text-ink-400">
-          <Icon size={22} />
-        </div>
-      )}
+      {Icon && (typeof Icon === 'string'
+        ? <BrandIcon name={Icon} size={56} className="mb-3" />
+        : <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-ink-100 text-ink-400"><Icon size={22} /></div>)}
       <p className="font-semibold text-ink-700">{title}</p>
       {hint && <p className="mt-1 text-sm text-ink-400">{hint}</p>}
     </div>

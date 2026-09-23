@@ -24,7 +24,7 @@ export default function Users() {
   const [notice, setNotice] = useState('')
   const [createdCredential, setCreatedCredential] = useState(null)
   useEffect(() => { if (current?.id === 'admin') Suppliers.list().then(setSuppliers).catch(() => {}) }, [current?.id])
-  if (current?.id !== 'admin') return <Card className="p-10"><Empty icon={Lock} title="Access denied" hint="Only Administrator can manage accounts." /></Card>
+  if (current?.id !== 'admin') return <Card className="p-10"><Empty icon="accounts" title="Access denied" hint="Only Administrator can manage accounts." /></Card>
 
   const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }))
   const toggle = (permission) => setForm((previous) => {

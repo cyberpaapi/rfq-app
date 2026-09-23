@@ -80,7 +80,7 @@ export default function RfqRespond() {
             </button>
           </div>
         )}
-        <p className="text-center text-xs text-ink-400">Powered by RFQ Hub</p>
+        <p className="text-center text-xs text-ink-400">Powered by OPRO</p>
       </div>
     </div>
   )

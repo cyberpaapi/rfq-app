@@ -98,7 +98,7 @@ export default function Award() {
 
   if (error && !rfq) return <Card className="p-6 text-rose-700">{error}</Card>
   if (candidates === null) return <Card><Spinner label="Loading evaluation…" /></Card>
-  if (candidates.length === 0) return <Card className="p-8"><Empty icon={AwardIcon} title="Nothing to evaluate yet" hint="An RFQ needs ≥2 responses before award." /></Card>
+  if (candidates.length === 0) return <Card className="p-8"><Empty icon="award" title="Nothing to evaluate yet" hint="An RFQ needs ≥2 responses before award." /></Card>
   if (!rfq) return <Card><Spinner /></Card>
 
   const cheapest = eligibleTotals.length ? eligibleTotals.reduce((a, b) => (a.total <= b.total ? a : b)) : null

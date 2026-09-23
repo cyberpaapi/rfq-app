@@ -125,7 +125,7 @@ export default function Assign() {
 
   if (error) return <Card className="p-6 text-rose-700">{error}</Card>
   if (rfqs === null) return <Card><Spinner label="Loading…" /></Card>
-  if (!rfq) return <Card className="p-6"><Empty icon={Package} title="No RFQs yet" hint="Import a document to create one." /></Card>
+  if (!rfq) return <Card className="p-6"><Empty icon="rfq" title="No RFQs yet" hint="Import a document to create one." /></Card>
 
   const assignedTo = (lineId) => rfq.assignments.filter((a) => a.lineIds.includes(lineId))
   const partialCount = sel.length
@@ -164,7 +164,7 @@ export default function Assign() {
               </div>
             </div>
             <div className="space-y-2">
-              {rfq.lines.length === 0 && <Empty icon={Package} title="No items yet" hint="Use “Edit / Add items” to add line items." />}
+              {rfq.lines.length === 0 && <Empty icon="items" title="No items yet" hint="Use “Edit / Add items” to add line items." />}
               {rfq.lines.map((l) => {
                 const checked = sel.includes(l.lineId)
                 const aTo = assignedTo(l.lineId)
@@ -292,7 +292,7 @@ export default function Assign() {
                 </div>
               </Card>
             ))}
-            {ranked.length === 0 && <Card className="p-5"><Empty icon={Search} title="No suppliers match" /></Card>}
+            {ranked.length === 0 && <Card className="p-5"><Empty icon="suppliers" title="No suppliers match" /></Card>}
           </div>
         </div>
       </div>

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, ArrowRight, Check, FileSpreadsheet, ListTree, Search,
-  Plus, Trash2, ChevronRight, Star, Upload, Loader2, Sparkles,
+  ArrowLeft, ArrowRight, Check, FileSpreadsheet, Search,
+  Plus, Trash2, ChevronRight, Star, Upload, Loader2,
 } from 'lucide-react'
 import { Items, Suppliers, Rfqs, Ingest } from '../api/client'
 import { categories } from '../data/mock'
@@ -11,6 +11,7 @@ import ItemsTable from '../components/ItemsTable'
 import { useAuth } from '../context/AuthContext'
 import { Lock } from 'lucide-react'
 import { catalogueMatches } from '../../shared/catalogue'
+import BrandIcon from '../components/BrandIcon'
 
 const steps = ['Details', 'Items', 'Suppliers', 'Review']
 
@@ -136,7 +137,7 @@ export default function CreateRfq() {
   if (!can('rfq.create')) {
     return (
       <Card className="p-10">
-        <Empty icon={Lock} title="You can't create RFQs" hint="Only Procurement Buyers and Administrators can create RFQs." />
+        <Empty icon="rfq" title="You can't create RFQs" hint="Only Procurement Buyers and Administrators can create RFQs." />
         <div className="text-center"><Link to="/rfqs" className="btn-outline">Back to RFQs</Link></div>
       </Card>
     )
@@ -151,13 +152,13 @@ export default function CreateRfq() {
       </div>
       <div className="grid gap-5 md:grid-cols-2">
         <button type="button" onClick={() => setMode('manual')} className="rounded-2xl border border-ink-200 bg-white p-7 text-left shadow-sm transition hover:border-brand-400 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600">
-          <span className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-600"><ListTree size={24} /></span>
+          <BrandIcon name="create" size={56} className="mb-5" />
           <span className="block text-xl font-bold text-ink-900">Manual</span>
           <span className="mt-2 block text-sm leading-6 text-ink-600">Enter RFQ details, find items in the catalogue, or add each item yourself. Then choose suppliers and review before saving.</span>
           <span className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-brand-600">Continue manually <ArrowRight size={16} /></span>
         </button>
         {can('ai.use') ? <Link to="/import" className="rounded-2xl border border-ink-200 bg-white p-7 text-left shadow-sm transition hover:border-brand-400 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600">
-          <span className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-violet-50 text-violet-600"><Sparkles size={24} /></span>
+          <BrandIcon name="ai" size={56} className="mb-5" />
           <span className="block text-xl font-bold text-ink-900">AI Upload</span>
           <span className="mt-2 block text-sm leading-6 text-ink-600">Upload an item list or specification document. Review and correct the extracted items before creating the RFQ.</span>
           <span className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-brand-600">Upload a document <ArrowRight size={16} /></span>
@@ -272,7 +273,7 @@ export default function CreateRfq() {
               </div>
             </div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Previously invited suppliers appear first</p>
-            {sortedSuppliers.length === 0 ? <Empty icon={Search} title="No suppliers match" /> : (
+            {sortedSuppliers.length === 0 ? <Empty icon="suppliers" title="No suppliers match" /> : (
               <div className="grid gap-2 sm:grid-cols-2">
                 {sortedSuppliers.map((s) => {
                   const sel = picked.includes(s.id)

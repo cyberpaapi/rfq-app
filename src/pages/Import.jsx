@@ -247,7 +247,7 @@ export default function Import() {
         </Card>
       )}
 
-      {!rows && !busy && <Card className="p-6"><Empty icon={Sparkles} title="Extracted items will appear here" hint="Upload a document and run extraction." /></Card>}
+      {!rows && !busy && <Card className="p-6"><Empty icon="ai" title="Extracted items will appear here" hint="Upload a document and run extraction." /></Card>}
     </div>
   )
 }

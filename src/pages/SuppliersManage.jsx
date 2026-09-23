@@ -95,7 +95,7 @@ export default function SuppliersManage() {
           {list === null ? (
             <Card><Spinner label="Loading suppliers…" /></Card>
           ) : list.length === 0 ? (
-            <Card className="p-6"><Empty icon={Search} title="No suppliers found" hint="Adjust your search or add a new one." /></Card>
+            <Card className="p-6"><Empty icon="suppliers" title="No suppliers found" hint="Adjust your search or add a new one." /></Card>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {list.map((s) => (

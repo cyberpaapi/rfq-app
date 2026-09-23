@@ -4,7 +4,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell,
   ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { FileText, Clock, Award, CalendarX, ArrowUpRight } from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
 import { STATUS, fmt } from '../data/mock'
 import { Card, Stat, StatusBadge, SectionTitle, Spinner } from '../components/ui'
@@ -39,10 +39,10 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon={FileText} label="Open RFQs" value={rep.summary.openRfqs} sub="across all categories" tone="brand" />
-        <Stat icon={Clock} label="Pending Approval" value={rep.summary.pendingApproval} sub="HOD & Finance" tone="amber" />
-        <Stat icon={Award} label="Awarded" value={rep.summary.awardedCount} sub="contracts closed" tone="violet" />
-        <Stat icon={CalendarX} label="Expired RFQs" value={rep.summary.expiredCount} sub="past deadline" tone="rose" />
+        <Stat icon="rfq" label="Open RFQs" value={rep.summary.openRfqs} sub="across all categories" tone="brand" />
+        <Stat icon="audit" label="Pending Approval" value={rep.summary.pendingApproval} sub="HOD & Finance" tone="amber" />
+        <Stat icon="award" label="Awarded" value={rep.summary.awardedCount} sub="contracts closed" tone="violet" />
+        <Stat icon="bell" label="Expired RFQs" value={rep.summary.expiredCount} sub="past deadline" tone="rose" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

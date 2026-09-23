@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from 'recharts'
-import { TrendingDown, FileText, Users, Clock } from 'lucide-react'
 import { Reports as ReportsApi } from '../api/client'
 import { fmt } from '../data/mock'
 import { Card, Stat, SectionTitle, Progress, Spinner, StatusBadge } from '../components/ui'
@@ -22,10 +21,10 @@ export default function Reports() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon={TrendingDown} label="Total Savings" value={fmt(summary.savings)} sub={`${summary.savingsPct}% vs budget`} tone="emerald" />
-        <Stat icon={FileText} label="RFQs Awarded" value={summary.awardedCount} sub="this period" tone="brand" />
-        <Stat icon={Users} label="Avg Response Rate" value={`${summary.avgResponseRate}%`} tone="violet" />
-        <Stat icon={Clock} label="Open RFQs" value={summary.openRfqs} sub={`${summary.expiredCount} expired`} tone="amber" />
+        <Stat icon="reports" label="Total Savings" value={fmt(summary.savings)} sub={`${summary.savingsPct}% vs budget`} tone="emerald" />
+        <Stat icon="award" label="RFQs Awarded" value={summary.awardedCount} sub="this period" tone="brand" />
+        <Stat icon="suppliers" label="Avg Response Rate" value={`${summary.avgResponseRate}%`} tone="violet" />
+        <Stat icon="rfq" label="Open RFQs" value={summary.openRfqs} sub={`${summary.expiredCount} expired`} tone="amber" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

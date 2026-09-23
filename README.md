@@ -1,4 +1,4 @@
-# RFQ Hub — Procurement Suite
+# OPRO — Procurement Suite
 
 React + Vite frontend with an Express backend, a parallel OpenAI document pipeline, and role-based access.
 

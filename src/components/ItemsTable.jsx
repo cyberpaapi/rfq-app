@@ -157,7 +157,7 @@ export default function ItemsTable({ rows, onChange, onRemove, nameExtra, mappab
   }, [rows?.length])
   const nudge = (dx) => scrollRef.current?.scrollBy({ left: dx, behavior: 'smooth' })
 
-  if (!rows?.length) return <Empty icon={Layers} title="No items" hint={emptyHint} />
+  if (!rows?.length) return <Empty icon="items" title="No items" hint={emptyHint} />
 
   // Arrow buttons sit on the header row at the left/right edges.
   const arrowBtn = 'absolute top-1 z-20 grid h-8 w-8 place-items-center rounded-full border border-ink-200 bg-white text-ink-600 shadow-md transition hover:bg-ink-50 hover:text-brand-600'
