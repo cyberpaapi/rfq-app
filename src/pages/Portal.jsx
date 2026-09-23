@@ -131,6 +131,7 @@ export default function Portal() {
           </div>
 
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
+          <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>
 
           {/* The items the supplier must quote (read-only) */}
           <div className="overflow-x-auto rounded-xl border border-ink-100">

@@ -8,6 +8,7 @@ import { extractQuote, matchQuoteLines, scoreQuality, recommendBestPerItem } fro
 
 import { isPriced, validateAward } from '../../shared/evaluation.js'
 import { recordAction } from '../lib/diagnostics.js'
+import { documentDownload } from '../lib/documents.js'
 
 const router = Router()
 const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)
@@ -43,7 +44,7 @@ const actor = (req) => req.get('x-user-name') || req.body?.actor || 'System'
 router.get('/', (_req, res) => res.json(store.all('rfqs')))
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
-const stripFile = (q) => { const { fileData, ...rest } = q; return { ...rest, hasFile: !!fileData } }
+const stripFile = (q) => { const { fileData, fileBlob, ...rest } = q; return { ...rest, hasFile: !!fileData || !!fileBlob, fileExpiresAt: fileBlob?.expiresAt || null } }
 
 router.get('/:id', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
@@ -53,12 +54,18 @@ router.get('/:id', (req, res) => {
 })
 
 // Download the exact response document a supplier uploaded.
-router.get('/:id/quote-file/:supplierId', (req, res) => {
-  const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
-  if (!quote?.fileData) return res.status(404).json({ error: 'no file on record for that supplier' })
-  res.setHeader('Content-Type', quote.fileMime || 'application/octet-stream')
-  res.setHeader('Content-Disposition', `attachment; filename="${quote.fileName || 'response'}"`)
-  res.send(Buffer.from(quote.fileData, 'base64'))
+router.get('/:id/quote-file/:supplierId', async (req, res, next) => {
+  try {
+    const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
+    if (quote?.fileBlob) {
+      res.setHeader('Cache-Control', 'no-store')
+      return res.redirect(302, await documentDownload(quote.fileBlob))
+    }
+    if (!quote?.fileData) return res.status(404).json({ error: 'no file on record for that supplier' })
+    res.setHeader('Content-Type', quote.fileMime || 'application/octet-stream')
+    res.setHeader('Content-Disposition', `attachment; filename="${quote.fileName || 'response'}"`)
+    res.send(Buffer.from(quote.fileData, 'base64'))
+  } catch (error) { next(error) }
 })
 
 // Edit a supplier's quote in the comparison grid — merge per-line patches
@@ -388,15 +395,18 @@ async function buildQuoteFromFile(rfq, supplier, file) {
     id: newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
     lines, paymentTerms: '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
     // keep the original file so the buyer can re-download the exact response
-    fileData: file.buffer.toString('base64'), fileMime: file.mimetype || 'application/octet-stream', fileName: file.originalname,
+    ...(file.blob ? { fileBlob: file.blob } : { fileData: file.buffer.toString('base64') }),
+    fileMime: file.mimetype || 'application/octet-stream', fileName: file.originalname,
     currency: 'USD', sourceCurrency: currency, fxRate: rate, fxSource: rateSource, submittedAt: Date.now(),
   })
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
   store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Uploaded quotation document', field: 'Quotes', old: '', value: file.originalname })
   store.notify({ type: 'response', title: `New quote from ${supplier.name} on ${rfq.title}`, rfqId: rfq.id })
 
+  file.retainBlob = true
+
   return {
-    quote, engine, matchEngine, currency, rate, rateSource, usedUsdColumn,
+    quote: stripFile(quote), engine, matchEngine, currency, rate, rateSource, usedUsdColumn,
     extracted: quoteLines.length,
     matched: map.filter((x) => x >= 0).length,
     total: rfq.lines.length,

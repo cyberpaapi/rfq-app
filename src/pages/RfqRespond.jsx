@@ -64,7 +64,7 @@ export default function RfqRespond() {
                 <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${file ? 'bg-brand-50 text-brand-600' : 'bg-ink-100 text-ink-400'}`}><FileText size={20} /></div>
                 <div className="min-w-0">
                   {file ? <p className="truncate font-semibold text-ink-800">{file.name}</p> : <p className="font-semibold text-ink-700">Click to choose a file</p>}
-                  <p className="text-xs text-ink-400">.xlsx .csv .pdf .png .jpg — prices in any currency (auto-converted to USD)</p>
+                  <p className="text-xs text-ink-400">.xlsx .csv .pdf .png .jpg — up to 50 MB. Prices auto-converted to USD. Hosted originals are retained for 15 days; extracted data stays saved.</p>
                 </div>
                 <input type="file" hidden accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && setFile(e.target.files[0])} />
               </label>

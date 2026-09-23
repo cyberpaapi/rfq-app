@@ -1,5 +1,6 @@
 import express from 'express'
 import logs from './routes/logs.js'
+import uploads from './routes/uploads.js'
 import { requestLogging } from './lib/diagnostics.js'
 import cors from 'cors'
 import * as store from './store.js'
@@ -27,6 +28,7 @@ app.get('/api/health', (_req, res) =>
 )
 
 app.use('/api/logs', logs)
+app.use('/api/uploads', uploads)
 
 app.use('/api', (req, res, next) => {
   if (process.env.DATABASE_URL) return store.cloudPersistence(req, res, next)
@@ -48,7 +50,7 @@ app.use('/api/export', exporter)
 
 app.use((err, _req, res, _next) => {
   console.error(err)
-  res.status(500).json({ error: err.message || 'server error' })
+  res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : err.status || 500).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File is too large. Use the direct upload flow for files up to 50 MB.' : err.message || 'server error' })
 })
 
 export default app

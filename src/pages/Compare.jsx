@@ -136,6 +136,7 @@ export default function Compare() {
                     <a key={q.supplierId} href={Rfqs.quoteFileUrl(rfqId, q.supplierId)} onClick={() => setDlOpen(false)} className="block px-3 py-2 text-sm hover:bg-ink-50">
                       <span className="font-semibold text-ink-800">{q.supplierName}</span>
                       <span className="block truncate text-xs text-ink-400">{q.fileName}</span>
+                      {q.fileExpiresAt && <span className="block text-xs text-ink-400">Original expires {new Date(q.fileExpiresAt).toLocaleDateString()}</span>}
                     </a>
                   ))}
                   {!withFile.length && <p className="px-3 py-2 text-xs text-ink-400">No uploaded files.</p>}

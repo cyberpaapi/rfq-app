@@ -168,7 +168,7 @@ export default function Import() {
                 {file ? (
                   <><p className="truncate font-semibold text-ink-800">{file.name}</p><p className="text-xs text-ink-400">{(file.size / 1024).toFixed(0)} KB · click to change</p></>
                 ) : (
-                  <><p className="font-semibold text-ink-700">Drop a file or click to browse</p><p className="text-xs text-ink-400">.xlsx .csv .txt .pdf .png .jpg — large files are chunked automatically</p></>
+                  <><p className="font-semibold text-ink-700">Drop a file or click to browse</p><p className="text-xs text-ink-400">.xlsx .csv .txt .pdf .png .jpg — up to 50 MB per file</p></>
                 )}
               </div>
               <input ref={inputRef} type="file" hidden accept=".xlsx,.xls,.csv,.txt,.md,.pdf,.png,.jpg,.jpeg,.webp,.gif" onChange={(e) => e.target.files[0] && pick(e.target.files[0])} />
@@ -291,4 +291,3 @@ function ClubCard({ club, idx, active, jump, instancesFor }) {
     </div>
   )
 }
-

@@ -24,8 +24,21 @@ Requests operate on isolated snapshots and return HTTP 409 if another request
 changed the data, so concurrent writes cannot silently overwrite each other.
 Local development continues to use the JSON file unless `DATABASE_URL` is set.
 For a larger multi-user rollout, migrate the document store into relational tables.
-Hosted multipart uploads are limited to 4 MB to stay within Vercel's request
-limit; larger documents can be split or processed locally (25 MB limit).
+Uploads support **50 MB per file** locally and on Vercel. Hosted browsers upload
+directly to a private Vercel Blob store with a short-lived, size-limited token;
+the API receives a signed reference and retrieves the file for processing.
+Connect a private Blob store and configure `BLOB_READ_WRITE_TOKEN` for this flow.
+Keep Vercel Authentication enabled for **All Deployments**, including production:
+it authenticates the token endpoint and the rest of this prototype's API.
+
+Imported source files are removed after processing. Supplier quote originals
+remain downloadable for 15 days through short-lived private download URLs;
+extracted quote data remains in the database. Expired files are cleaned on new
+upload activity. A 500 MB document budget check blocks new uploads when full
+(simultaneous uploads can temporarily exceed this guard). This is separate from
+the 25 MB debug-log cap. Storage/operation/transfer quotas still apply.
+The 50 MB upload limit does not guarantee that arbitrarily long documents fit
+within the hosting plan's processing time or AI provider limits.
 
 ### Action and debug logs
 

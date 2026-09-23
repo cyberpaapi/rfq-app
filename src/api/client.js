@@ -1,4 +1,6 @@
 // Thin fetch wrapper. Requests hit /api which Vite proxies to the Express server.
+import { put as putBlob } from '@vercel/blob/client'
+import { MAX_UPLOAD_BYTES, validateUpload } from '../../shared/uploads'
 const base = '/api'
 
 // The current demo user's name is sent so the backend can attribute audit
@@ -7,8 +9,7 @@ let actorName = 'System'
 export const setActor = (name) => { actorName = name || 'System' }
 const authHeaders = () => ({ 'x-user-name': actorName })
 const validateFileSize = (file) => {
-  const limit = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES) || 25 * 1024 * 1024
-  if (file.size > limit) throw new Error(`This app accepts files up to ${limit / 1024 / 1024} MB. Split the document or use the local app for larger files.`)
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error('This app accepts files up to 50 MB.')
 }
 
 async function handle(res) {
@@ -28,6 +29,22 @@ const qs = (params = {}) => {
   return s ? `?${s}` : ''
 }
 
+let uploadConfig
+async function sendFile(path, file, params, fields = {}) {
+  validateFileSize(file)
+  validateUpload({ name: file.name, size: file.size, target: path })
+  uploadConfig ||= fetch(base + '/uploads/config', { headers: authHeaders() }).then(handle).catch((error) => { uploadConfig = null; throw error })
+  const config = await uploadConfig
+  if (config.direct) {
+    const grant = await fetch(base + '/uploads/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name: file.name, size: file.size, target: path }) }).then(handle)
+    await putBlob(grant.pathname, file, { access: 'private', token: grant.clientToken, contentType: grant.contentType, multipart: true })
+    return fetch(base + path + qs(params), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...fields, uploadReceipt: grant.receipt }) }).then(handle)
+  }
+  const fd = new FormData(); fd.append('file', file)
+  Object.entries(fields).forEach(([k, v]) => fd.append(k, v ?? ''))
+  return fetch(base + path + qs(params), { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
+}
+
 export const api = {
   get: (path, params) => fetch(base + path + qs(params), { headers: authHeaders() }).then(handle),
   post: (path, body) =>
@@ -35,20 +52,9 @@ export const api = {
   put: (path, body) =>
     fetch(base + path, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body || {}) }).then(handle),
   del: (path) => fetch(base + path, { method: 'DELETE', headers: authHeaders() }).then(handle),
-  upload: (path, file, params) => {
-    validateFileSize(file)
-    const fd = new FormData()
-    fd.append('file', file)
-    return fetch(base + path + qs(params), { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
-  },
+  upload: (path, file, params) => sendFile(path, file, params),
   // Multipart upload with extra text fields (e.g. a typed name).
-  uploadForm: (path, file, fields = {}) => {
-    validateFileSize(file)
-    const fd = new FormData()
-    fd.append('file', file)
-    Object.entries(fields).forEach(([k, v]) => fd.append(k, v ?? ''))
-    return fetch(base + path, { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
-  },
+  uploadForm: (path, file, fields = {}) => sendFile(path, file, undefined, fields),
 }
 
 // Absolute URL for file-download endpoints (opened in a new tab / window).
