@@ -41,25 +41,35 @@ function setCookie(req, res, token = '') {
 
 export function publicAccount(account) {
   if (!account) return null
-  const { id, username, label, desc, enabled, readOnly, permissions, supplierId, color, version } = account
-  return { id, username, label, desc, enabled, readOnly, permissions, supplierId, color, version,
+  const { id, username, roleId, label, desc, enabled, readOnly, permissions, supplierId, color, version } = account
+  return { id, username, roleId, label, desc, enabled, readOnly, permissions, supplierId, color, version,
     passwordAvailable: !!account.passwordCiphertext }
 }
 
+export function effectiveAccount(user, role) {
+  if (!user || !role || !user.enabled || !role.enabled) return null
+  return { ...user, label: role.label, desc: role.desc, permissions: role.permissions,
+    readOnly: user.readOnly || role.readOnly, color: role.color, enabled: true }
+}
+
 export function accountForRequest(req) {
-  const roles = store.getRoles()
+  const users = store.getUsers()
   const token = cookieValue(req)
   if (!token || token.length > 128) return null
   const session = store.all('sessions').find((s) => s.tokenHash === digest(token))
   if (!session || session.expiresAt <= Date.now()) return null
-  const account = roles.find((r) => r.id === session.accountId && r.enabled)
+  const user = users.find((item) => item.id === session.accountId)
+  const role = store.getRoles().find((item) => item.id === user?.roleId)
+  const account = effectiveAccount(user, role)
   if (!account || account.version !== session.accountVersion) return null
   if (account.id === 'admin' && session.adminFingerprint !== digest(process.env.ADMIN_BOOTSTRAP_PASSWORD_HASH || '')) return null
   return { account, session }
 }
 
 export async function checkCredentials(username, password) {
-  const account = store.getRoles().find((r) => r.username === String(username || '').trim().toLowerCase() && r.enabled)
+  const user = store.getUsers().find((item) => item.username === String(username || '').trim().toLowerCase())
+  const role = store.getRoles().find((item) => item.id === user?.roleId)
+  const account = effectiveAccount(user, role)
   const storedHash = account?.id === 'admin' ? process.env.ADMIN_BOOTSTRAP_PASSWORD_HASH : account?.passwordHash
   // Do one expensive check even for unknown names; responses remain generic.
   if (!storedHash) {

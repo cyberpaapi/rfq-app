@@ -7,7 +7,7 @@ import { recordAction } from './lib/diagnostics.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createCloudMiddleware, createPostgresDatabase } from './lib/cloud-store.js'
 import { deriveBaseName, addTagUnique, normalize } from './lib/tags.js'
-import { seedRoles } from '../shared/roles.js'
+import { seedRoles, seedUsers } from '../shared/roles.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.RFQ_DATA_DIR || join(__dirname, 'data')
@@ -19,8 +19,9 @@ const now = Date.now()
 const day = (n) => new Date(now + n * DAY).toISOString().slice(0, 10)
 
 const seed = () => ({
-  authVersion: 2,
-  roles: seedRoles(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'),
+  authVersion: 3,
+  roles: seedRoles(),
+  users: seedUsers(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'),
   sessions: [],
   loginAttempts: [],
   suppliers: [
@@ -255,20 +256,23 @@ export function reset() {
 export const all = (coll) => { ensure(); return currentDb()[coll] }
 export function getRoles() {
   ensure()
-  // The old role picker had public, preloaded identities. Keep procurement data,
-  // but require the admin to create each non-admin account from scratch.
-  if (currentDb().authVersion !== 2) {
-    currentDb().roles = seedRoles(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin')
+  if (currentDb().authVersion !== 3) {
+    // Roles and logins used to be one record. Start this separate model with
+    // one administrator; procurement records remain untouched.
+    currentDb().roles = seedRoles()
+    currentDb().users = seedUsers(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin')
     currentDb().sessions = []
     currentDb().loginAttempts = []
-    currentDb().authVersion = 2
+    currentDb().authVersion = 3
     flush()
   }
-  if (!currentDb().roles) { currentDb().roles = seedRoles(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'); flush() }
+  if (!currentDb().roles) { currentDb().roles = seedRoles(); flush() }
+  if (!currentDb().users) { currentDb().users = seedUsers(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'); flush() }
   if (!currentDb().sessions) { currentDb().sessions = []; flush() }
   if (!currentDb().loginAttempts) { currentDb().loginAttempts = []; flush() }
   return currentDb().roles
 }
+export function getUsers() { getRoles(); return currentDb().users }
 export const find = (coll, id) => { ensure(); return currentDb()[coll].find((x) => x.id === id) }
 
 export function insert(coll, doc) {

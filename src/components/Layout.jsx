@@ -36,7 +36,7 @@ const nav = [
   { to: '/portal', label: 'Supplier Portal', art: 'portal', perm: 'portal.access' },
   { to: '/reports', label: 'Reports', art: 'reports', perm: 'reports.view' },
   { to: '/audit', label: 'Audit & Compliance', art: 'audit', perm: 'audit.view' },
-  { to: '/users', label: 'Accounts & Access', art: 'accounts', perm: 'users.manage' },
+  { to: '/users', label: 'Roles & Users', art: 'accounts', perm: 'users.manage' },
 ]
 
 function Sidebar({ onNavigate }) {

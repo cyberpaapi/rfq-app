@@ -22,7 +22,8 @@ export const ROLES = {
   admin: { label: 'Administrator', desc: 'Full access and account administration.', color: 'rose', permissions: '*' },
 }
 export const ROLE_KEYS = Object.keys(ROLES)
-export const seedRoles = (username = 'admin') => [{ id: 'admin', username: username.toLowerCase(), enabled: true, readOnly: false, builtIn: true, version: 1, ...ROLES.admin }]
+export const seedRoles = () => [{ id: 'admin', enabled: true, readOnly: false, builtIn: true, version: 1, ...ROLES.admin }]
+export const seedUsers = (username = 'admin') => [{ id: 'admin', username: username.trim().toLowerCase(), roleId: 'admin', enabled: true, readOnly: false, version: 1, supplierId: '' }]
 export function roleCan(role, permission) {
   if (!role?.enabled) return false
   if (role.id === 'admin') return true
@@ -32,16 +33,22 @@ export function roleCan(role, permission) {
 }
 export function validateRole(input, roles, existing) {
   const label = String(input.label || '').trim()
-  if (!label || label.length > 60) throw new Error('Enter a role name between 1 and 60 characters.')
+  if (!label || label.length > 240) throw new Error('Enter a role name of up to 240 characters.')
   if (roles.some((r) => r.id !== existing?.id && r.label.toLowerCase() === label.toLowerCase())) throw new Error('A role with this name already exists.')
-  const username = String(input.username || '').trim().toLowerCase()
-  if (!username || username.length > 80) throw new Error('Enter a login username of up to 80 characters.')
-  if (roles.some((r) => r.id !== existing?.id && r.username === username)) throw new Error('That username is already in use.')
   if (!Array.isArray(input.permissions) || input.permissions.some((p) => !PERMISSION_KEYS.includes(p) || p === 'users.manage')) throw new Error('Choose valid permissions. Role administration is reserved for Administrator.')
   if (input.permissions.some((p) => WORKSPACE_PERMISSIONS.includes(p)) && !input.permissions.includes('workspace.view')) throw new Error('Enable workspace access for these procurement permissions.')
-  const supplierId = String(input.supplierId || '')
-  if ((input.permissions.includes('portal.access') || input.permissions.includes('quote.submit')) && !supplierId) throw new Error('Select the supplier profile for portal access.')
-  return { label, username, desc: String(input.desc || '').trim().slice(0, 240), enabled: input.enabled !== false,
-    readOnly: input.readOnly === true, permissions: [...new Set(input.permissions)], supplierId,
+  return { label, desc: String(input.desc || '').trim().slice(0, 240), enabled: input.enabled !== false,
+    readOnly: input.readOnly === true, permissions: [...new Set(input.permissions)],
     color: existing?.color || 'ink' }
+}
+export function validateUser(input, users, roles, existing) {
+  const username = String(input.username || '').trim().toLowerCase()
+  if (!username || username.length > 80) throw new Error('Enter a login username of up to 80 characters.')
+  if (users.some((user) => user.id !== existing?.id && user.username === username)) throw new Error('That username is already in use.')
+  const roleId = String(input.roleId || '')
+  const role = roles.find((item) => item.id === roleId && item.id !== 'admin')
+  if (!role) throw new Error('Select a valid role for this user.')
+  const supplierId = String(input.supplierId || '')
+  if (role.permissions.some((permission) => permission === 'portal.access' || permission === 'quote.submit') && !supplierId) throw new Error('Select the supplier profile for portal access.')
+  return { username, roleId, enabled: input.enabled !== false, readOnly: input.readOnly === true, supplierId }
 }

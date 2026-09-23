@@ -8,14 +8,16 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [current, setCurrent] = useState(null)
   const [roles, setRoles] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const refreshRoles = async () => {
     if (current?.id !== 'admin') return
-    const value = await api.get('/roles')
-    setRoles(value)
-    return value
+    const [roleList, userList] = await Promise.all([api.get('/roles'), api.get('/users')])
+    setRoles(roleList)
+    setUsers(userList)
+    return roleList
   }
   const refreshSession = async () => {
     try {
@@ -26,6 +28,7 @@ export function AuthProvider({ children }) {
       if (e.status !== 401) setError(e.message)
       setCurrent(null)
       setRoles([])
+      setUsers([])
     } finally { setLoading(false) }
   }
   useEffect(() => {
@@ -43,7 +46,7 @@ export function AuthProvider({ children }) {
     setError('')
   }
   const logout = async () => {
-    try { await Auth.logout() } finally { setCurrent(null); setRoles([]) }
+    try { await Auth.logout() } finally { setCurrent(null); setRoles([]); setUsers([]) }
   }
   const saveRole = async (form) => {
     if (current?.id !== 'admin') throw new Error('Only Administrator can manage accounts.')
@@ -56,7 +59,19 @@ export function AuthProvider({ children }) {
     await api.del(`/roles/${id}`)
     setRoles((previous) => previous.filter((role) => role.id !== id))
   }
-  const value = { current, roles, can: (permission) => roleCan(current, permission), login, logout, saveRole, deleteRole, refreshRoles, refreshSession }
+  const saveUser = async (form) => {
+    if (current?.id !== 'admin') throw new Error('Only Administrator can manage users.')
+    const user = form.id ? await api.put(`/users/${form.id}`, form) : await api.post('/users', form)
+    setUsers((previous) => form.id ? previous.map((item) => item.id === user.id ? user : item) : [...previous, user])
+    return user
+  }
+  const deleteUser = async (id) => {
+    if (current?.id !== 'admin') throw new Error('Only Administrator can manage users.')
+    await api.del(`/users/${id}`)
+    setUsers((previous) => previous.filter((user) => user.id !== id))
+  }
+  const value = { current, roles, users, can: (permission) => roleCan(current, permission), login, logout,
+    saveRole, deleteRole, saveUser, deleteUser, refreshRoles, refreshSession }
   if (loading) return <div className="p-10 text-sm text-ink-600">Checking your session…</div>
   return <AuthContext.Provider value={value}>{current ? children : <Login error={error} />}</AuthContext.Provider>
 }

@@ -8,6 +8,7 @@ export function requiredPermissions(method, path, body = {}) {
   path = path.toLowerCase().replace(/\/+$/, '') || '/'
   if (path === '/roles') return ['users.manage']
   if (path.startsWith('/roles/')) return ['users.manage']
+  if (path === '/users' || path.startsWith('/users/')) return ['users.manage']
   if (path === '/logs/events' || path === '/uploads/config') return []
   if (path === '/uploads/prepare') return requiredPermissions('POST', body.target || '/invalid', {})
   if (path.startsWith('/logs') || path.startsWith('/audit')) return ['audit.view']

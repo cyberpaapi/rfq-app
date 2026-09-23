@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { seedRoles, roleCan, validateRole } from '../shared/roles.js'
+import { seedRoles, seedUsers, roleCan, validateRole, validateUser } from '../shared/roles.js'
 import { checkAccess } from '../server/lib/access.js'
 
 test('role definitions contain no named accounts and admin cannot be delegated', () => {
@@ -8,12 +8,15 @@ test('role definitions contain no named accounts and admin cannot be delegated',
   assert.equal(roles.length, 1)
   assert.equal(roles[0].id, 'admin')
   assert.ok(roles.every((r) => !r.name && !r.email && !r.password))
-  assert.throws(() => validateRole({ label: 'Administrator', username: 'other', permissions: [] }, roles), /already exists/)
-  assert.throws(() => validateRole({ label: 'Backdoor', username: 'backdoor', permissions: ['users.manage'] }, roles), /valid permissions/)
-  assert.throws(() => validateRole({ label: 'Backdoor', username: 'backdoor', permissions: '*' }, roles), /valid permissions/)
-  assert.throws(() => validateRole({ label: 'Buyer', username: 'buyer', permissions: ['rfq.create'] }, roles), /workspace/)
-  assert.equal(validateRole({ label: 'Short login', username: 'X', permissions: [] }, roles).username, 'x')
-  assert.equal(validateRole({ label: 'Named login', username: '  Mary Jane +Ops  ', permissions: [] }, roles).username, 'mary jane +ops')
+  assert.equal(seedUsers()[0].roleId, 'admin')
+  assert.throws(() => validateRole({ label: 'Administrator', permissions: [] }, roles), /already exists/)
+  assert.throws(() => validateRole({ label: 'Backdoor', permissions: ['users.manage'] }, roles), /valid permissions/)
+  assert.throws(() => validateRole({ label: 'Backdoor', permissions: '*' }, roles), /valid permissions/)
+  assert.throws(() => validateRole({ label: 'Buyer', permissions: ['rfq.create'] }, roles), /workspace/)
+  const custom = { id: 'reviewer', label: 'Reviewer #1', permissions: ['workspace.view'], enabled: true }
+  assert.equal(validateRole({ label: '  Reviewer #1  ', permissions: [] }, roles).label, 'Reviewer #1')
+  assert.equal(validateUser({ username: '  Mary Jane +Ops  ', roleId: custom.id }, seedUsers(), [...roles, custom]).username, 'mary jane +ops')
+  assert.throws(() => validateUser({ username: 'extra', roleId: 'admin' }, seedUsers(), roles), /valid role/)
 })
 
 test('read-only, disabled, AI and export restrictions are applied by API policy', () => {

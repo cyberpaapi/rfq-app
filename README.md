@@ -65,23 +65,25 @@ Vercel Hobby permits personal, non-commercial use.
 ### Roles and access
 
 There is one pre-created account: **Administrator**. Sign in with the bootstrap
-username and password. In **Accounts & Access**, create each additional account
-with its own username, password, role name, permissions and restrictions. There
-is no public signup or role picker. Configure access to procurement, approvals,
-AI calls, exports, reports, audit logs and the supplier portal. Link supplier
-accounts to a supplier profile so they can only see their assigned RFQs and
-quotes. Read-only blocks business changes and AI calls; disabled accounts lose
-access immediately. Only Administrator can manage accounts.
+username and password. In **Roles & Users**, create a role with shared permissions
+and restrictions, then add any number of users to that role. Each user has their
+own username and password; roles have no login credentials. There is no public
+signup or role picker. Configure access to procurement, approvals, AI calls,
+exports, reports, audit logs and the supplier portal. Link supplier users to a
+supplier profile so they can only see their assigned RFQs and quotes. Read-only
+blocks business changes and AI calls; disabled roles or users lose access
+immediately. Only Administrator can manage roles and users.
 
-Account records persist alongside procurement data (local JSON or Neon), with
-version checks to reject stale edits. Passwords use salted scrypt hashes;
-sessions use HttpOnly, SameSite cookies and expire after 12 hours. Editing,
-disabling or deleting an account revokes its existing sessions. Permission
-changes are audited. The first authenticated request replaces the old public
-demo roles with the single admin account while preserving procurement data.
-API checks load current permissions on every request; page guards and controls
-also reflect them. Admin can reset an account password in its editor. Rotate
-the bootstrap admin password by changing its hash in `.env` and Vercel, then
+Role and user records persist alongside procurement data (local JSON or Neon),
+with version checks to reject stale edits. Passwords use salted scrypt hashes
+for login and an encrypted copy for repeat admin viewing. Set a stable
+`ACCOUNT_PASSWORD_ENCRYPTION_KEY` in each environment. Sessions use HttpOnly,
+SameSite cookies and expire after 12 hours. Editing, disabling or deleting a
+user revokes its session; role permission changes apply to all assigned users
+on their next request. A role with assigned users cannot be deleted. On upgrade
+from the old combined account model, old roles, users and sessions are removed;
+the Administrator is recreated while procurement data remains. Rotate the
+bootstrap admin password by changing its hash in `.env` and Vercel, then
 redeploying; this invalidates prior admin sessions.
 
 ### Item catalogue
