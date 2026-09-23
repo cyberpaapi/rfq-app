@@ -17,6 +17,7 @@ const steps = ['Details', 'Items', 'Suppliers', 'Review']
 export default function CreateRfq() {
   const nav = useNavigate()
   const { can } = useAuth()
+  const [mode, setMode] = useState(null)
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
     title: '', description: '', currency: 'USD', deadline: '', validity: '',
@@ -141,9 +142,37 @@ export default function CreateRfq() {
     )
   }
 
+  if (!mode) return (
+    <div className="space-y-6">
+      <Link to="/rfqs" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"><ArrowLeft size={16} /> Back to RFQs</Link>
+      <div>
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Create RFQ</h1>
+        <p className="mt-1 text-sm text-ink-500">Choose how to prepare the requested items.</p>
+      </div>
+      <div className="grid gap-5 md:grid-cols-2">
+        <button type="button" onClick={() => setMode('manual')} className="rounded-2xl border border-ink-200 bg-white p-7 text-left shadow-sm transition hover:border-brand-400 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600">
+          <span className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-600"><ListTree size={24} /></span>
+          <span className="block text-xl font-bold text-ink-900">Manual</span>
+          <span className="mt-2 block text-sm leading-6 text-ink-600">Enter RFQ details, find items in the catalogue, or add each item yourself. Then choose suppliers and review before saving.</span>
+          <span className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-brand-600">Continue manually <ArrowRight size={16} /></span>
+        </button>
+        {can('ai.use') ? <Link to="/import" className="rounded-2xl border border-ink-200 bg-white p-7 text-left shadow-sm transition hover:border-brand-400 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600">
+          <span className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-violet-50 text-violet-600"><Sparkles size={24} /></span>
+          <span className="block text-xl font-bold text-ink-900">AI Upload</span>
+          <span className="mt-2 block text-sm leading-6 text-ink-600">Upload an item list or specification document. Review and correct the extracted items before creating the RFQ.</span>
+          <span className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-brand-600">Upload a document <ArrowRight size={16} /></span>
+        </Link> : <div className="rounded-2xl border border-ink-200 bg-ink-50 p-7 text-left opacity-70">
+          <span className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-ink-100 text-ink-500"><Lock size={24} /></span>
+          <span className="block text-xl font-bold text-ink-900">AI Upload</span>
+          <span className="mt-2 block text-sm leading-6 text-ink-600">This role needs AI permission to upload and extract document items.</span>
+        </div>}
+      </div>
+    </div>
+  )
+
   return (
     <div className="space-y-6">
-      <Link to="/rfqs" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"><ArrowLeft size={16} /> Cancel</Link>
+      <button type="button" onClick={() => setMode(null)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"><ArrowLeft size={16} /> Choose another method</button>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
