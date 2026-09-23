@@ -12,6 +12,8 @@ test('role definitions contain no named accounts and admin cannot be delegated',
   assert.throws(() => validateRole({ label: 'Backdoor', username: 'backdoor', permissions: ['users.manage'] }, roles), /valid permissions/)
   assert.throws(() => validateRole({ label: 'Backdoor', username: 'backdoor', permissions: '*' }, roles), /valid permissions/)
   assert.throws(() => validateRole({ label: 'Buyer', username: 'buyer', permissions: ['rfq.create'] }, roles), /workspace/)
+  assert.equal(validateRole({ label: 'Short login', username: 'X', permissions: [] }, roles).username, 'x')
+  assert.equal(validateRole({ label: 'Named login', username: '  Mary Jane +Ops  ', permissions: [] }, roles).username, 'mary jane +ops')
 })
 
 test('read-only, disabled, AI and export restrictions are applied by API policy', () => {

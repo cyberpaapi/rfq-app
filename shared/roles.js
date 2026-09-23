@@ -35,7 +35,7 @@ export function validateRole(input, roles, existing) {
   if (!label || label.length > 60) throw new Error('Enter a role name between 1 and 60 characters.')
   if (roles.some((r) => r.id !== existing?.id && r.label.toLowerCase() === label.toLowerCase())) throw new Error('A role with this name already exists.')
   const username = String(input.username || '').trim().toLowerCase()
-  if (!/^[a-z0-9][a-z0-9._@-]{2,79}$/.test(username)) throw new Error('Enter a username of 3-80 letters, numbers, dots, dashes or @.')
+  if (!username || username.length > 80) throw new Error('Enter a login username of up to 80 characters.')
   if (roles.some((r) => r.id !== existing?.id && r.username === username)) throw new Error('That username is already in use.')
   if (!Array.isArray(input.permissions) || input.permissions.some((p) => !PERMISSION_KEYS.includes(p) || p === 'users.manage')) throw new Error('Choose valid permissions. Role administration is reserved for Administrator.')
   if (input.permissions.some((p) => WORKSPACE_PERMISSIONS.includes(p)) && !input.permissions.includes('workspace.view')) throw new Error('Enable workspace access for these procurement permissions.')

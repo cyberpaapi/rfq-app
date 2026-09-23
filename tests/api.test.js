@@ -73,9 +73,10 @@ test('procurement API regression checks on isolated data', async (t) => {
       assert.deepEqual(revealed.data, { username: 'reviewer', password: 'reviewer-password-123' })
     }
     assert.ok(!JSON.stringify((await request('/roles', null, 'GET')).data).includes('reviewer-password-123'))
-    const secondAccount = await request('/roles', { label: 'Second Reviewer', username: 'reviewer2', password: 'reviewer2-password-123', permissions: ['workspace.view', 'rfq.evaluate'] })
+    const secondAccount = await request('/roles', { label: 'Second Reviewer', username: '  Second Reviewer #2  ', password: 'reviewer2-password-123', permissions: ['workspace.view', 'rfq.evaluate'] })
     assert.equal(secondAccount.status, 201)
-    assert.equal(secondAccount.data.username, 'reviewer2')
+    assert.equal(secondAccount.data.username, 'second reviewer #2')
+    assert.equal((await login('SECOND REVIEWER #2', 'reviewer2-password-123')).status, 200)
     assert.equal((await request('/roles', null, 'GET')).data.length, 3)
     const key = created.data.id
     cookies.set(key, (await login('reviewer', 'reviewer-password-123')).cookie)
