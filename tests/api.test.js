@@ -16,7 +16,7 @@ test('procurement API regression checks on isolated data', async (t) => {
   t.after(async () => { const exited = once(server, 'exit'); server.kill(); await exited; await rm(data, { recursive: true, force: true }) })
   const request = async (path, body, method = 'POST') => {
     const res = await fetch(`http://localhost:${port}/api${path}`, { method, headers: { 'Content-Type': 'application/json' }, ...(method === 'GET' ? {} : { body: JSON.stringify(body || {}) }) })
-    return { status: res.status, data: await res.json() }
+    return { status: res.status, data: await res.json(), requestId: res.headers.get('x-request-id') }
   }
   for (let i = 0; i < 100; i++) {
     try { if ((await request('/health', null, 'GET')).status === 200) break } catch {}
@@ -66,5 +66,18 @@ test('procurement API regression checks on isolated data', async (t) => {
   await t.test('recommendation validates weights and fails visibly without AI', async () => {
     assert.equal((await request('/rfqs/RFQ-2026-0042/recommend', { weights: { price: 0, quality: 0, delivery: 0 } })).status, 400)
     assert.equal((await request('/rfqs/RFQ-2026-0042/recommend', { weights: { price: 100, quality: 0, delivery: 0 } })).status, 503)
+  })
+  await t.test('diagnostics correlate failed requests and record sanitized UI events', async () => {
+    const failed = await request(`/rfqs/${rfq.id}/award`, { supplierId: 'SUP-001' })
+    assert.ok(failed.requestId)
+    const logs = await request(`/logs?q=${failed.requestId}`, null, 'GET')
+    assert.equal(logs.data.entries.length, 1)
+    assert.equal(logs.data.entries[0].status, failed.status)
+    assert.equal(logs.data.entries[0].level, 'warn')
+    assert.equal((await request('/logs/events', { events: [{ event: 'ui.click', message: 'Save password=secret', path: '/award' }] })).data.recorded, 1)
+    const clicks = await request('/logs?q=ui.click', null, 'GET')
+    assert.ok(!JSON.stringify(clicks.data.entries).includes('secret'))
+    assert.equal(clicks.data.policy.maxEntries, 20000)
+    assert.equal((await request('/logs/events', { events: Array(26).fill({ event: 'ui.click' }) })).status, 400)
   })
 })

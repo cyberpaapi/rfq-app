@@ -11,6 +11,7 @@
 //
 // If no API key is configured, falls back to a naive line parser so the app still works.
 import OpenAI from 'openai'
+import { loggedCompletion } from './diagnostics.js'
 import { normalize } from './tags.js'
 import { mapLimit } from './pool.js'
 import { splitPdfPages, firstPdfPage } from './pdf.js'
@@ -153,7 +154,7 @@ function naiveParse(text) {
 
 async function callModel(client, content, label = '', schema = ITEM_SCHEMA, system = SYSTEM) {
   const messages = [{ role: 'system', content: system }, { role: 'user', content }]
-  const resp = await client.chat.completions.create(chatParams(MODEL, messages, schema))
+  const resp = await loggedCompletion(client, chatParams(MODEL, messages, schema))
   if (resp.choices[0].finish_reason === 'length') {
     console.warn(`[ai] ${label} hit token cap — lower AI_PAGES_PER_CALL / AI_ROWS_PER_CALL or raise AI_MAX_TOKENS.`)
   }
@@ -294,7 +295,7 @@ export async function matchQuoteLines(rfqLines = [], quoteLines = []) {
       { role: 'system', content: MATCH_SYSTEM },
       { role: 'user', content: `RFQ lines (${rfq.length}):\n${JSON.stringify(rfq)}\n\nQUOTE lines (${quote.length}):\n${JSON.stringify(quote)}` },
     ]
-    const resp = await client.chat.completions.create(chatParams(MATCH_MODEL, messages, MATCH_SCHEMA))
+    const resp = await loggedCompletion(client, chatParams(MATCH_MODEL, messages, MATCH_SCHEMA))
     const arr = JSON.parse(resp.choices[0].message.content || '{"matches":[]}').matches || []
     const map = new Array(rfqLines.length).fill(-1)
     const used = new Set()
@@ -403,7 +404,7 @@ async function clubItems(client, items) {
       { role: 'system', content: CLUB_SYSTEM },
       { role: 'user', content: 'Cluster these extracted items. Return clusters with member indices.\n\n' + JSON.stringify(list) },
     ]
-    const resp = await client.chat.completions.create(chatParams(CLUB_MODEL, messages, CLUB_SCHEMA))
+    const resp = await loggedCompletion(client, chatParams(CLUB_MODEL, messages, CLUB_SCHEMA))
     clusters = JSON.parse(resp.choices[0].message.content || '{"clusters":[]}').clusters || []
   } catch (e) {
     console.warn(`[ai] clubbing pass (${CLUB_MODEL}) failed:`, e.message)
@@ -555,7 +556,7 @@ async function firstChunkContent(extraction) {
 async function detectQuoteCurrency(client, extraction) {
   try {
     const messages = [{ role: 'system', content: CURRENCY_SYSTEM }, { role: 'user', content: await firstChunkContent(extraction) }]
-    const resp = await client.chat.completions.create(chatParams(MODEL, messages, CURRENCY_SCHEMA))
+    const resp = await loggedCompletion(client, chatParams(MODEL, messages, CURRENCY_SCHEMA))
     const j = JSON.parse(resp.choices[0].message.content || '{}')
     return { currency: String(j.currency || 'USD').toUpperCase().trim(), dual: !!j.dual, usdColumn: j.usdColumn || '', foreignColumn: j.foreignColumn || '', aiRate: Number(j.aiRateToUsd) || 0, note: j.note || '' }
   } catch (e) {
@@ -620,7 +621,7 @@ export async function scoreQuality(pairs = []) {
         { role: 'system', content: QUALITY_SYSTEM },
         { role: 'user', content: 'Score and compare each entry.\n\n' + JSON.stringify(batch.map((p) => ({ i: p.i, requirement: p.requirement, offer: p.offer }))) },
       ]
-      const resp = await client.chat.completions.create(chatParams(MODEL, messages, QUALITY_SCHEMA))
+      const resp = await loggedCompletion(client, chatParams(MODEL, messages, QUALITY_SCHEMA))
       return JSON.parse(resp.choices[0].message.content || '{"scores":[]}').scores || []
     } catch (e) {
       console.warn('[ai] quality batch failed:', e.message)
@@ -663,7 +664,7 @@ export async function recommendBestPerItem(rows = [], weights = {}) {
         { role: 'system', content: RECOMMEND_SYSTEM },
         { role: 'user', content: wText + '\n\nItems:\n' + JSON.stringify(batch) },
       ]
-      const resp = await client.chat.completions.create(chatParams(MODEL, messages, RECOMMEND_SCHEMA))
+      const resp = await loggedCompletion(client, chatParams(MODEL, messages, RECOMMEND_SCHEMA))
       return JSON.parse(resp.choices[0].message.content || '{"picks":[]}').picks || []
     } catch (e) {
       console.warn('[ai] recommend batch failed:', e.message)

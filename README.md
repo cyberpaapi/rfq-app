@@ -27,6 +27,28 @@ For a larger multi-user rollout, migrate the document store into relational tabl
 Hosted multipart uploads are limited to 4 MB to stay within Vercel's request
 limit; larger documents can be split or processed locally (25 MB limit).
 
+### Action and debug logs
+
+Open **Audit & Compliance → Actions & Debug Logs** to search requests, user
+interface actions, data changes, AI timings/token counts and errors. Failed API
+requests include a request ID that can be searched here. Download exports the
+currently displayed matches (up to 500); the API supports up to 1,000 per query.
+Passwords, API keys, input values, prompts and uploaded contents are excluded.
+Browser events are batched and best effort; offline/aborted requests may be lost.
+
+Logs rotate automatically: keep the newest **20,000 entries**, at most **25 MB
+of log content**, and up to **15 days**. The first limit reached removes oldest
+entries. Cleanup runs on writes; expired entries are hidden from reads. Database
+indexes and table overhead are additional to the content cap. Local logs live in
+`server/data/diagnostics.json`; Vercel logs persist in the Neon `opro_logs` table.
+Business audit history is separate and is preserved with the procurement data.
+
+The Vercel Hobby and Neon Free plans have usage limits; this configuration does
+not enable paid upgrades. Existing AI API calls remain separately billable.
+Vercel Hobby permits personal, non-commercial use. Keep Vercel deployment
+protection enabled: the app's role switcher is prototype identity, not production
+authentication. Use real server-side authentication before external client use.
+
 ### Supplier evaluation and regression checks
 
 Run `npm test` for evaluation and API regression checks. API tests use a temporary

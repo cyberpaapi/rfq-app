@@ -1,4 +1,6 @@
 import express from 'express'
+import logs from './routes/logs.js'
+import { requestLogging } from './lib/diagnostics.js'
 import cors from 'cors'
 import * as store from './store.js'
 import suppliers from './routes/suppliers.js'
@@ -12,6 +14,7 @@ import exporter from './routes/export.js'
 
 const app = express()
 
+app.use(requestLogging)
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
@@ -22,6 +25,8 @@ app.get('/api/health', (_req, res) =>
     clubModel: process.env.OPENAI_CLUB_MODEL || 'gpt-5.5',
   }),
 )
+
+app.use('/api/logs', logs)
 
 app.use('/api', (req, res, next) => {
   if (process.env.DATABASE_URL) return store.cloudPersistence(req, res, next)

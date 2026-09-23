@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { statusStyle } from '../data/mock'
 
-export function Card({ className = '', children }) {
-  return <div className={`card ${className}`}>{children}</div>
+export function Card({ className = '', children, ...props }) {
+  return <div {...props} className={`card ${className}`}>{children}</div>
 }
 
 export function StatusBadge({ status }) {

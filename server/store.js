@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { nanoid } from 'nanoid'
+import { recordAction } from './lib/diagnostics.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createCloudMiddleware, createPostgresDatabase } from './lib/cloud-store.js'
 import { deriveBaseName, addTagUnique, normalize } from './lib/tags.js'
@@ -236,6 +237,7 @@ function flush() {
 }
 
 export function reset() {
+  recordAction('reset', { collection: 'all' })
   const state = requestState.getStore()
   if (state) state.data = seed()
   else db = seed()
@@ -248,6 +250,7 @@ export const all = (coll) => { ensure(); return currentDb()[coll] }
 export const find = (coll, id) => { ensure(); return currentDb()[coll].find((x) => x.id === id) }
 
 export function insert(coll, doc) {
+  recordAction('create', { collection: coll, id: doc.id })
   ensure()
   currentDb()[coll].push(doc)
   flush()
@@ -255,6 +258,7 @@ export function insert(coll, doc) {
 }
 
 export function update(coll, id, patch) {
+  recordAction('update', { collection: coll, id, fields: Object.keys(patch).slice(0, 12) })
   ensure()
   const idx = currentDb()[coll].findIndex((x) => x.id === id)
   if (idx === -1) return null
@@ -264,6 +268,7 @@ export function update(coll, id, patch) {
 }
 
 export function remove(coll, id) {
+  recordAction('delete', { collection: coll, id })
   ensure()
   const before = currentDb()[coll].length
   currentDb()[coll] = currentDb()[coll].filter((x) => x.id !== id)
@@ -274,6 +279,7 @@ export function remove(coll, id) {
 // ---- audit + notifications (spec 5 & 6) -----------------------------------
 export function logAudit({ rfqId = null, user = 'System', action, field = '', old = '', value = '' }) {
   ensure()
+  recordAction(action, { rfqId, field })
   const entry = { id: newId('AUD'), rfqId, user, action, field, old: String(old ?? ''), value: String(value ?? ''), at: Date.now() }
   currentDb().audit.push(entry)
   flush()
@@ -337,6 +343,7 @@ export function upsertItem(payload) {
 // memory, dedups names via a Set (O(1) lookups), and flushes to disk ONCE —
 // avoiding the per-row scan + per-row file write that makes upsertItem O(n²).
 export function bulkAddItems(payloads = []) {
+  recordAction('bulk_import', { collection: 'items', count: payloads.length })
   ensure()
   const seen = new Set(currentDb().items.map((i) => normalize(i.name)))
   const idSeen = new Set(currentDb().items.map((i) => i.id))

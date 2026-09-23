@@ -7,6 +7,7 @@ import { extractDocument } from '../lib/extract.js'
 import { extractQuote, matchQuoteLines, scoreQuality, recommendBestPerItem } from '../lib/ai.js'
 
 import { isPriced, validateAward } from '../../shared/evaluation.js'
+import { recordAction } from '../lib/diagnostics.js'
 
 const router = Router()
 const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)
@@ -175,6 +176,7 @@ router.post('/:id/recommend', async (req, res) => {
       rows.push({ i: rows.length, item: [line.name, line.spec, line.description].filter(Boolean).join(' — '), qty: line.qty, suppliers: cands.map(({ id, ...s }) => ({ supplierId: id, ...s })) })
     })
 
+    recordAction('recommendation.started', { rfqId: rfq.id, weights, eligibleItems: rows.length, totalItems: rfq.lines.length })
     const picks = await recommendBestPerItem(rows, weights) // { i: { supplier, reason } }
     if (evaluationSnapshot(rfq.id) !== snapshot) return res.status(409).json({ error: 'Quotes changed while recommending. Please run the recommendation again.' })
     const recommendation = {}
@@ -186,6 +188,7 @@ router.post('/:id/recommend', async (req, res) => {
       recommendation[r.lineId] = { supplierId: chosen.id, supplierName: chosen.name, reason: pick.reason }
     })
     if (rows.length && !Object.keys(recommendation).length) return res.status(503).json({ error: 'AI could not produce valid recommendations. Use weighted scoring or try again.' })
+    recordAction('recommendation.result', { rfqId: rfq.id, supplierItemCounts: Object.values(recommendation).reduce((counts, pick) => { counts[pick.supplierId] = (counts[pick.supplierId] || 0) + 1; return counts }, {}) })
     store.update('rfqs', rfq.id, { recommendation, recommendationVersion: 2, recommendWeights: weights, recommendedAt: Date.now() })
     store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'AI best-supplier recommendation', field: 'Recommendation', old: '', value: `${Object.keys(recommendation).length} items` })
     res.json({ recommendation, count: Object.keys(recommendation).length, items: rows.length, engine: process.env.OPENAI_API_KEY ? 'gpt-5.4-mini' : 'skipped (no key)' })
@@ -473,6 +476,7 @@ router.post('/:id/award', (req, res) => {
   try { award = validateAward(rfq, store.all('quotes').filter((q) => q.rfqId === rfq.id), store.all('suppliers'), req.body || {}) }
   catch (error) { return res.status(400).json({ error: error.message }) }
   const { type, reason } = award
+  recordAction('award.validated', { rfqId: rfq.id, type, amount: award.amount, supplierId: award.supplierId, splits: award.splits?.map((s) => ({ supplierId: s.supplierId, items: s.lineIds.length })) })
 
   if (type === 'reject') {
     store.update('rfqs', rfq.id, { status: 'Cancelled', award: { type: 'reject', reason, at: Date.now() } })

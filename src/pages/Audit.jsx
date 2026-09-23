@@ -1,3 +1,4 @@
+import DiagnosticsPanel from '../components/DiagnosticsPanel'
 import { useEffect, useState } from 'react'
 import { ShieldCheck, Search, Clock } from 'lucide-react'
 import { Audit as AuditApi } from '../api/client'
@@ -18,24 +19,15 @@ export default function Audit() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Audit & Compliance</h1>
-        <p className="mt-1 text-sm text-ink-500">Immutable trail of every action — user, time, old & new value.</p>
+        <p className="mt-1 text-sm text-ink-500">Procurement decisions and application diagnostics in one place.</p>
       </div>
 
+      <DiagnosticsPanel />
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><ShieldCheck size={20} /></div>
-            <div>
-              <p className="text-sm text-ink-500">Compliance status</p>
-              <p className="font-bold text-emerald-600">All checks passing</p>
-            </div>
-          </div>
-          <ul className="mt-4 space-y-2 text-sm text-ink-600">
-            <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Role-based access enforced</li>
-            <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Supplier data isolated</li>
-            <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Every action logged with old → new</li>
-            <li className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Approval authorization logged</li>
-          </ul>
+          <h2 className="font-bold text-ink-900">Audit & diagnostics</h2>
+          <p className="mt-3 text-sm text-ink-500">Procurement decisions appear in the activity trail. Detailed requests, browser actions and errors are available in the debug logs above.</p>
+          <p className="mt-3 text-sm text-ink-500">Debug log content is capped at 25 MB and 20,000 entries, retained for up to 15 days. Oldest entries are removed first.</p>
         </Card>
 
         <Card className="p-5 lg:col-span-2">

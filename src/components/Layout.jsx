@@ -1,3 +1,4 @@
+import { track } from '../diagnostics'
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
@@ -169,6 +170,7 @@ export default function Layout({ children }) {
   const [bell, setBell] = useState(false)
   const [notifications, setNotifications] = useState([])
   const loc = useLocation()
+  useEffect(() => { track('ui.navigation', `Opened ${loc.pathname}`) }, [loc.pathname])
   const { can } = useAuth()
   const unread = notifications.filter((n) => n.unread).length
 

@@ -15,7 +15,8 @@ async function handle(res) {
   if (!res.ok) {
     let msg = res.statusText
     try { msg = (await res.json()).error || msg } catch { /* ignore */ }
-    throw new Error(msg)
+    const requestId = res.headers.get('x-request-id')
+    throw new Error(requestId ? `${msg} (request ${requestId})` : msg)
   }
   return res.status === 204 ? null : res.json()
 }
