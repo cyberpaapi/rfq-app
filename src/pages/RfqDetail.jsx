@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, MapPin, CreditCard, Wallet, Check, GitCompareArrows,
-  Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck,
+  Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck, Truck, Star,
 } from 'lucide-react'
 import { Rfqs } from '../api/client'
 import { WORKFLOW, STATUS, fmt } from '../data/mock'
@@ -52,6 +52,7 @@ export default function RfqDetail() {
   const { can } = useAuth()
   const [rfq, setRfq] = useState(undefined) // undefined = loading, null = not found
   const [busy, setBusy] = useState(false)
+  const [rating, setRating] = useState(null) // delivery being rated
 
   const load = useCallback(() => {
     Rfqs.get(id).then(setRfq).catch(() => setRfq(null))
@@ -62,6 +63,8 @@ export default function RfqDetail() {
     setBusy(true)
     try { await Rfqs.setStatus(id, status); load() } finally { setBusy(false) }
   }
+  const updateDelivery = async (body) => { setBusy(true); try { await Rfqs.delivery(id, body); load() } finally { setBusy(false) } }
+  const submitRating = async ({ stars, note }) => { await Rfqs.delivery(id, { supplierId: rating.supplierId, rate: { stars, note } }); setRating(null); load() }
 
   if (rfq === undefined) return <Card><Spinner label="Loading RFQ…" /></Card>
   if (rfq === null) {
@@ -93,7 +96,7 @@ export default function RfqDetail() {
           <p className="mt-2 max-w-2xl text-sm text-ink-600">{rfq.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/compare" className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>
+          <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>
           {rfq.status === STATUS.DRAFT && can('rfq.publish') && (
             <button className="btn-primary" disabled={busy} onClick={() => setStatus(STATUS.PUBLISHED)}><Send size={16} /> Publish</button>
           )}
@@ -169,6 +172,42 @@ export default function RfqDetail() {
             )}
           </Card>
 
+          {rfq.deliveries && rfq.deliveries.length > 0 && (
+            <Card className="p-5">
+              <SectionTitle action={<span className="text-xs text-ink-400">one bulk shipment per supplier</span>}>Delivery & Supplier Rating</SectionTitle>
+              <div className="space-y-3">
+                {rfq.deliveries.map((d) => (
+                  <div key={d.supplierId} className="rounded-xl border border-ink-100 p-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Avatar name={d.supplierName} size={34} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-ink-800">{d.supplierName}</p>
+                        <p className="text-xs text-ink-400">{d.items} item{d.items !== 1 ? 's' : ''} awarded</p>
+                      </div>
+                      {d.status === 'delivered'
+                        ? <span className={`chip ${d.onTime === false ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>Delivered {d.deliveredAt}{d.onTime === false ? ' · late' : d.onTime ? ' · on time' : ''}</span>
+                        : <span className="chip bg-amber-50 text-amber-700">Pending</span>}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <label className="text-xs font-medium text-ink-500">Expected</label>
+                      <input type="date" value={d.expectedDate || ''} disabled={d.status === 'delivered' || busy}
+                        onChange={(e) => updateDelivery({ supplierId: d.supplierId, expectedDate: e.target.value })}
+                        className="input w-40 py-1.5 text-sm" />
+                      {d.status !== 'delivered' ? (
+                        <button className="btn-primary py-1.5 text-xs" disabled={busy} onClick={() => updateDelivery({ supplierId: d.supplierId, deliver: true })}><Truck size={13} /> Mark delivered</button>
+                      ) : d.rated ? (
+                        <span className="chip bg-ink-100 text-ink-500"><Star size={12} className="fill-amber-400 text-amber-400" /> Rated</span>
+                      ) : (
+                        <button className="btn-outline py-1.5 text-xs" onClick={() => setRating(d)}><Star size={13} /> Rate supplier</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-ink-400">On-time delivery updates the supplier's <b>delivery</b> score; rating updates their <b>quality</b> score — both feed weighted scoring.</p>
+            </Card>
+          )}
+
           {rfq.clarifications && rfq.clarifications.length > 0 && (
             <Card className="p-5">
               <SectionTitle>Clarifications</SectionTitle>
@@ -241,6 +280,36 @@ export default function RfqDetail() {
               </div>
             )}
           </Card>
+        </div>
+      </div>
+
+      <RateDialog delivery={rating} onClose={() => setRating(null)} onSubmit={submitRating} />
+    </div>
+  )
+}
+
+function RateDialog({ delivery, onClose, onSubmit }) {
+  const [stars, setStars] = useState(0)
+  const [hover, setHover] = useState(0)
+  const [note, setNote] = useState('')
+  useEffect(() => { if (delivery) { setStars(0); setHover(0); setNote('') } }, [delivery])
+  if (!delivery) return null
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-card-lg animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-ink-900">Rate {delivery.supplierName}</h2>
+        <p className="mt-0.5 text-sm text-ink-400">Overall quality of this order — feeds the supplier's quality score.</p>
+        <div className="mt-4 flex justify-center gap-1.5" onMouseLeave={() => setHover(0)}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button key={n} onMouseEnter={() => setHover(n)} onClick={() => setStars(n)}>
+              <Star size={34} className={(hover || stars) >= n ? 'fill-amber-400 text-amber-400' : 'text-ink-200'} />
+            </button>
+          ))}
+        </div>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input mt-4 min-h-20 text-sm" placeholder="Quality, packaging, communication, issues…" />
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={!stars} onClick={() => onSubmit({ stars, note })}>Submit rating</button>
         </div>
       </div>
     </div>

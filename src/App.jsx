@@ -15,13 +15,25 @@ import Award from './pages/Award'
 import Reports from './pages/Reports'
 import Audit from './pages/Audit'
 import Users from './pages/Users'
+import RfqRespond from './pages/RfqRespond'
 
 export default function App() {
   return (
     <AuthProvider>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
+      <Routes>
+        {/* Public, login-free RFQ response page (generated link) — no app chrome */}
+        <Route path="/r/:id" element={<RfqRespond />} />
+        <Route path="/*" element={<AppShell />} />
+      </Routes>
+    </AuthProvider>
+  )
+}
+
+function AppShell() {
+  return (
+    <Layout>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
           <Route path="/rfqs" element={<RfqList />} />
           <Route path="/rfqs/new" element={<CreateRfq />} />
           <Route path="/rfqs/:id" element={<RfqDetail />} />
@@ -37,8 +49,7 @@ export default function App() {
           <Route path="/audit" element={<Audit />} />
           <Route path="/users" element={<Users />} />
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
-    </AuthProvider>
+      </Routes>
+    </Layout>
   )
 }

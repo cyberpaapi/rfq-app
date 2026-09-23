@@ -35,6 +35,13 @@ export const api = {
     fd.append('file', file)
     return fetch(base + path + qs(params), { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
   },
+  // Multipart upload with extra text fields (e.g. a typed name).
+  uploadForm: (path, file, fields = {}) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    Object.entries(fields).forEach(([k, v]) => fd.append(k, v ?? ''))
+    return fetch(base + path, { method: 'POST', headers: authHeaders(), body: fd }).then(handle)
+  },
 }
 
 // Absolute URL for file-download endpoints (opened in a new tab / window).
@@ -47,11 +54,12 @@ export const Suppliers = {
   update: (id, b) => api.put(`/suppliers/${id}`, b),
   remove: (id) => api.del(`/suppliers/${id}`),
   rate: (id, b) => api.post(`/suppliers/${id}/rate`, b),
+  upload: (file) => api.upload('/suppliers/upload', file),
 }
 
 // Weighted supplier score (0-100) from performance scores + weights.
 export const weightedScore = (s, w = { price: 30, quality: 40, delivery: 30 }) => {
-  const sc = s.scores || { price: 0, quality: 0, delivery: 0 }
+  const sc = { price: 0, quality: 0, delivery: 0, ...s.scores }
   const total = (w.price + w.quality + w.delivery) || 1
   return (sc.price * w.price + sc.quality * w.quality + sc.delivery * w.delivery) / total
 }
@@ -60,6 +68,7 @@ export const Items = {
   create: (b) => api.post('/items', b),
   update: (id, b) => api.put(`/items/${id}`, b),
   remove: (id) => api.del(`/items/${id}`),
+  upload: (file) => api.upload('/items/upload', file),
 }
 export const Rfqs = {
   list: () => api.get('/rfqs'),
@@ -73,9 +82,18 @@ export const Rfqs = {
   quoteUpload: (id, file, supplierId) => api.upload(`/rfqs/${id}/quote-upload`, file, { supplierId }),
   approve: (id, b) => api.post(`/rfqs/${id}/approve`, b),
   award: (id, b) => api.post(`/rfqs/${id}/award`, b),
+  delivery: (id, b) => api.post(`/rfqs/${id}/delivery`, b),
   clarify: (id, b) => api.post(`/rfqs/${id}/clarifications`, b),
   exportPoUrl: (id) => fileUrl(`/export/po/${id}`),
   exportCostingUrl: (id, stock) => fileUrl(`/export/costing/${id}`, stock ? { stock: JSON.stringify(stock) } : {}),
+  exportRfqItemsUrl: (id) => fileUrl(`/export/rfq-items/${id}`),
+  exportComparisonUrl: (id) => fileUrl(`/export/comparison/${id}`),
+  respond: (id, file, name) => api.uploadForm(`/rfqs/${id}/respond`, file, { name }),
+  editQuote: (id, supplierId, b) => api.put(`/rfqs/${id}/quotes/${supplierId}`, b),
+  quoteFileUrl: (id, supplierId) => fileUrl(`/rfqs/${id}/quote-file/${supplierId}`),
+  scoreQuality: (id) => api.post(`/rfqs/${id}/score-quality`),
+  recommend: (id, weights) => api.post(`/rfqs/${id}/recommend`, { weights }),
+  forwardEvaluation: (id) => api.post(`/rfqs/${id}/forward-evaluation`),
 }
 export const Reports = () => api.get('/reports')
 export const Audit = (params) => api.get('/audit', params)

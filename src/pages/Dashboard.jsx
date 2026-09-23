@@ -4,7 +4,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell,
   ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { FileText, Clock, Award, TrendingDown, ArrowUpRight } from 'lucide-react'
+import { FileText, Clock, Award, CalendarX, ArrowUpRight } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
 import { STATUS, fmt } from '../data/mock'
 import { Card, Stat, StatusBadge, SectionTitle, Spinner } from '../components/ui'
@@ -31,7 +31,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Procurement Dashboard</h1>
-          <p className="mt-1 text-sm text-ink-500">Overview of your RFQ pipeline, suppliers and savings.</p>
+          <p className="mt-1 text-sm text-ink-500">Overview of your RFQ pipeline and suppliers.</p>
         </div>
         <Link to="/rfqs/new" className="btn-primary">Create RFQ</Link>
       </div>
@@ -40,12 +40,12 @@ export default function Dashboard() {
         <Stat icon={FileText} label="Open RFQs" value={rep.summary.openRfqs} sub="across all categories" tone="brand" />
         <Stat icon={Clock} label="Pending Approval" value={rep.summary.pendingApproval} sub="HOD & Finance" tone="amber" />
         <Stat icon={Award} label="Awarded" value={rep.summary.awardedCount} sub="contracts closed" tone="violet" />
-        <Stat icon={TrendingDown} label="Cost Savings" value={fmt(rep.summary.savings)} sub="budget vs awarded" tone="emerald" />
+        <Stat icon={CalendarX} label="Expired RFQs" value={rep.summary.expiredCount} sub="past deadline" tone="rose" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">
-          <SectionTitle>Savings by Awarded RFQ</SectionTitle>
+          <SectionTitle>Awarded Spend by RFQ</SectionTitle>
           <div className="h-64">
             {rep.savingsByRfq.length === 0 ? (
               <div className="grid h-full place-items-center text-sm text-ink-400">No awarded RFQs yet.</div>
@@ -56,7 +56,6 @@ export default function Dashboard() {
                   <XAxis dataKey="id" tickLine={false} axisLine={false} fontSize={10} stroke="#8591aa" />
                   <YAxis tickLine={false} axisLine={false} fontSize={12} stroke="#8591aa" />
                   <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #eceef2', fontSize: 12 }} />
-                  <Bar dataKey="budget" name="Budget" radius={[6, 6, 0, 0]} fill="#b0b8c9" />
                   <Bar dataKey="awarded" name="Awarded" radius={[6, 6, 0, 0]} fill="#3563ff" />
                 </BarChart>
               </ResponsiveContainer>

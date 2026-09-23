@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Plus, Search, Star, BadgeCheck, MapPin, Mail, Phone, Pencil, Trash2, Tag as TagIcon, Filter,
+  Plus, Search, Star, BadgeCheck, MapPin, Mail, Phone, Pencil, Trash2, Tag as TagIcon, Filter, Upload, Loader2,
 } from 'lucide-react'
 import { Suppliers, Tags } from '../api/client'
 import { Card, Avatar, Spinner, Tag, TagInput, Drawer, Empty, ClampList } from '../components/ui'
@@ -15,6 +15,8 @@ export default function SuppliersManage() {
   const [cat, setCat] = useState('All')
   const [activeTag, setActiveTag] = useState(null)
   const [drawer, setDrawer] = useState(null) // null | 'new' | supplier object
+  const [uploading, setUploading] = useState(false)
+  const [toast, setToast] = useState(null)
 
   const load = useCallback(async () => {
     const data = await Suppliers.list({ q, category: cat === 'All' ? '' : cat, tag: activeTag || '' })
@@ -24,6 +26,7 @@ export default function SuppliersManage() {
 
   useEffect(() => { load() }, [load])
 
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 4500) }
   const save = async (form) => {
     if (drawer === 'new') await Suppliers.create(form)
     else await Suppliers.update(drawer.id, form)
@@ -32,15 +35,36 @@ export default function SuppliersManage() {
   }
   const del = async (id) => { if (confirm('Delete this supplier?')) { await Suppliers.remove(id); load() } }
 
+  const onUpload = async (e) => {
+    const f = e.target.files[0]; e.target.value = ''
+    if (!f) return
+    setUploading(true)
+    try {
+      const r = await Suppliers.upload(f)
+      flash(`Added ${r.added} supplier(s)${r.skipped ? `, skipped ${r.skipped} row(s) without a Name` : ''}.`)
+      load()
+    } catch (err) { flash('Upload failed: ' + err.message) } finally { setUploading(false) }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Suppliers</h1>
-          <p className="mt-1 text-sm text-ink-500">Add, edit, categorise and tag your vendors. Tags are searchable.</p>
+          <p className="mt-1 text-sm text-ink-500">List, add, edit, categorise and tag your vendors. Tags are searchable.</p>
         </div>
-        <button className="btn-primary" onClick={() => setDrawer('new')}><Plus size={16} /> Add Supplier</button>
+        <div className="flex flex-wrap gap-2">
+          <label className="btn-outline cursor-pointer" title="Upload .xlsx / .csv with headers: Name, Category, Email, Phone, Location, Other Notes">
+            {uploading ? <><Loader2 size={16} className="animate-spin" /> Uploading…</> : <><Upload size={16} /> Upload Xls</>}
+            <input type="file" hidden accept=".xlsx,.xls,.csv" onChange={onUpload} />
+          </label>
+          <button className="btn-primary" onClick={() => setDrawer('new')}><Plus size={16} /> Add Supplier</button>
+        </div>
       </div>
+
+      <p className="-mt-2 text-xs text-ink-400">Bulk upload format — headers: <span className="font-semibold text-ink-600">Name</span>, <span className="font-semibold text-ink-600">Category</span>, <span className="font-semibold text-ink-600">Email</span>, <span className="font-semibold text-ink-600">Phone</span>, <span className="font-semibold text-ink-600">Location</span>, <span className="font-semibold text-ink-600">Other Notes</span>. Name is required.</p>
+
+      {toast && <div className="rounded-xl bg-ink-900 px-4 py-2.5 text-sm font-medium text-white">{toast}</div>}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
         {/* Main list (left) */}
@@ -193,7 +217,7 @@ function SupplierDrawer({ open, supplier, suggestions, onClose, onSave }) {
         <label className="label">Tags <span className="font-normal lowercase text-ink-400">(unlimited)</span></label>
         <TagInput value={form.tags} onChange={(t) => set('tags', t)} suggestions={suggestions} />
       </div>
-      <div><label className="label">Notes</label><textarea className="input min-h-20" value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
+      <div><label className="label">Other notes</label><textarea className="input min-h-20" value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Anything else about this supplier…" /></div>
     </Drawer>
   )
 }

@@ -28,3 +28,15 @@ export async function splitPdfPages(buffer, { pagesPerChunk = 1 } = {}) {
 
   return { total, chunks }
 }
+
+// Just the first page as a PDF data URL — used for the lightweight currency-
+// detection pass without splitting the whole (possibly huge) document.
+export async function firstPdfPage(buffer) {
+  const src = await PDFDocument.load(buffer, { ignoreEncryption: true })
+  if (src.getPageCount() === 0) return null
+  const out = await PDFDocument.create()
+  const [p] = await out.copyPages(src, [0])
+  out.addPage(p)
+  const bytes = await out.save()
+  return `data:application/pdf;base64,${Buffer.from(bytes).toString('base64')}`
+}

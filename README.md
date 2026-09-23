@@ -12,6 +12,23 @@ npm run dev:all             # starts the API (:4000) and the web app (:5173) tog
 
 Or run them separately: `npm run server` and `npm run dev`.
 
+### Supplier evaluation and regression checks
+
+Run `npm test` for evaluation and API regression checks. API tests use a temporary
+database via `RFQ_DATA_DIR`; the AI identity test uses a local mock provider.
+They do not alter the normal database or call a paid AI service.
+
+Lowest Cost compares complete quotes only. Missing, zero, negative and invalid
+prices cannot win an item. Incomplete quotes can participate in split awards,
+but every RFQ item must have a priced supplier before the split can be awarded.
+The API calculates award amounts from saved quote prices and RFQ quantities.
+
+Weighted Scoring uses the current total price, average quoted item quality and
+latest delivery date. Missing quality/delivery information falls back to supplier
+history. Per-item weighted evaluation applies the same criteria to each line.
+AI Recommended is a separate, model-based per-item recommendation using stable
+supplier IDs. Older recommendations must be rerun with the updated identity rules.
+
 ### `.env`
 
 ```
@@ -44,7 +61,7 @@ OPENAI_CLUB_MODEL=gpt-5.5       # "clubbed view" consolidation (default)
 
 # Testing the new features — step by step
 
-Start the app (`npm run dev:all`) and open **http://localhost:5173**. The seed data ships an RFQ (`RFQ-2026-0042`, "Landscape Lighting") assigned to **Supplier 1/2/3**, with quotes already in from Supplier 1 & 2.
+Start the app (`npm run dev:all`) and open **http://localhost:5173**. The seed data ships an RFQ (`RFQ-2026-0042`, "Landscape Lighting") assigned to suppliers **A / B / C**, with quotes already in from A & B.
 
 > Tip: to restore the seed at any time, run `curl -X POST http://localhost:4000/api/reset` (or delete `server/data/db.json`) and refresh.
 
@@ -66,7 +83,7 @@ Start the app (`npm run dev:all`) and open **http://localhost:5173**. The seed d
 ## 2) Supplier Portal — sign in & upload a quote
 
 1. Sidebar → **Supplier Portal** (or use the "View as" switcher / open it directly).
-2. You get a **sign-in screen with 3 profiles: Supplier 1 / Supplier 2 / Supplier 3** — **no password**. Click **Supplier 3** (it's assigned to the demo RFQ but hasn't quoted yet).
+2. You get a **sign-in screen with 3 profiles: A / B / C** — **no password**. Click **C** (it's assigned to the demo RFQ but hasn't quoted yet).
 3. The RFQ `RFQ-2026-0042` is selected; you see the **items you must quote** (read-only). There is **no manual rate form** — the only action is **Upload quote document**.
 4. Prepare a small quote file (CSV/XLSX/PDF) with the item names, **the same quantities** (50, 60, 150, 35) and a unit price column, e.g.:
    ```

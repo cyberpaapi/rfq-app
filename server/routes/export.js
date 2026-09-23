@@ -2,6 +2,8 @@ import { Router } from 'express'
 import * as XLSX from 'xlsx'
 import * as store from '../store.js'
 
+import { isPriced } from '../../shared/evaluation.js'
+
 const router = Router()
 
 // For each RFQ line decide which supplier "won" it and at what rate.
@@ -22,11 +24,11 @@ function resolveWinners(rfq, quotes) {
       supplierId = split?.supplierId || null
     }
     // Fallback / no award: cheapest quote for this line.
-    if (!supplierId) {
+    if (!supplierId && !rfq.award) {
       let best = null
       for (const q of quotes) {
         const ql = q.lines.find((l) => l.lineId === line.lineId)
-        if (ql && (best === null || Number(ql.rate) < best.rate)) best = { supplierId: q.supplierId, rate: Number(ql.rate) || 0 }
+        if (isPriced(ql) && (best === null || Number(ql.rate) < best.rate)) best = { supplierId: q.supplierId, rate: Number(ql.rate) || 0 }
       }
       supplierId = best?.supplierId || null
     }
@@ -111,6 +113,62 @@ router.get('/costing/:rfqId', (req, res) => {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(without), 'Without OPRO Stock')
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(withStock), 'With OPRO Stock')
   sendWorkbook(res, wb, `${rfq.id}-Costing.xlsx`)
+})
+
+// GET /api/export/rfq-items/:rfqId — the RFQ item list for a supplier to fill in
+// (includes an empty "Unit Price" column).
+router.get('/rfq-items/:rfqId', (req, res) => {
+  const rfq = store.find('rfqs', req.params.rfqId)
+  if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+  const rows = rfq.lines.map((l, i) => ({
+    'S.No': i + 1,
+    'Item Name': l.name,
+    'Specification': [l.spec, l.description].filter(Boolean).join(' — '),
+    'Brand': l.brand || '',
+    'Model No': l.model || '',
+    'Part No': l.partNo || '',
+    'Quantity': l.qty,
+    'Unit': l.uom,
+    'Remark': l.remark || '',
+    'Unit Price': '',
+  }))
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Item Name': '', 'Quantity': '', 'Unit Price': '' }])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'RFQ Items')
+  sendWorkbook(res, wb, `${rfq.id}-RFQ.xlsx`)
+})
+
+// GET /api/export/comparison/:rfqId — the full side-by-side comparison grid.
+router.get('/comparison/:rfqId', (req, res) => {
+  const rfq = store.find('rfqs', req.params.rfqId)
+  if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+  const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
+  const sup = quotes.map((q) => ({ id: q.supplierId, name: q.supplierName, lines: Object.fromEntries(q.lines.map((l) => [l.lineId, l])) }))
+
+  const rows = rfq.lines.map((line, i) => {
+    const row = { 'S.No': i + 1, 'Item': line.name, 'Requirement': [line.spec, line.description].filter(Boolean).join(' — '), 'Qty': line.qty }
+    let bestRate = Infinity, bestRateSup = '', bestQ = -1, bestQSup = ''
+    for (const s of sup) {
+      const l = s.lines[line.lineId]
+      const rate = l ? Number(l.rate) || 0 : 0
+      const total = rate * (Number(line.qty) || 0)
+      row[`${s.name} Rate`] = rate || ''
+      row[`${s.name} Total`] = total || ''
+      row[`ETA ${s.name}`] = l?.eta || ''
+      row[`Quality ${s.name}`] = l?.qualityScore ?? ''
+      row[`Notes ${s.name}`] = l?.specNotes || l?.remark || ''
+      if (rate > 0 && rate < bestRate) { bestRate = rate; bestRateSup = s.name }
+      if (l?.qualityScore != null && l.qualityScore > bestQ) { bestQ = l.qualityScore; bestQSup = s.name }
+    }
+    row['Lower Price'] = bestRateSup
+    row['Quality Winner'] = bestQSup
+    return row
+  })
+
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Item: '' }])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Comparison')
+  sendWorkbook(res, wb, `${rfq.id}-Comparison.xlsx`)
 })
 
 export default router

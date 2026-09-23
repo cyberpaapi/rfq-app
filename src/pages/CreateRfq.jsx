@@ -7,6 +7,7 @@ import {
 import { Items, Suppliers, Rfqs, Ingest } from '../api/client'
 import { categories } from '../data/mock'
 import { Card, Avatar, Empty, Spinner } from '../components/ui'
+import ItemsTable from '../components/ItemsTable'
 import { useAuth } from '../context/AuthContext'
 import { Lock } from 'lucide-react'
 
@@ -63,13 +64,15 @@ export default function CreateRfq() {
     const key = lineKey(it)
     if (lines.find((x) => x._key === key)) return
     setLines((prev) => [...prev, {
-      _key: key, itemId: it.itemId || it.id || null, name: it.name, spec: it.spec || '',
+      _key: key, itemId: it.itemId || it.id || null, sku: it.sku || '', name: it.name, spec: it.spec || '',
       description: it.description || '', brand: it.brand || '', model: it.model || '', partNo: it.partNo || '',
-      uom: it.uom || 'PCS', qty: it.quantity || 1, secondaryRequirements: it.secondaryRequirements || '', remark: '', requiredDeliveryDate: '', photo: '', attachment: '',
+      uom: it.uom || 'PCS', quantity: it.quantity || 1, secondaryRequirements: it.secondaryRequirements || '', remark: '', requiredDeliveryDate: '', photo: '', attachment: '',
     }])
   }
-  const removeItem = (key) => setLines((prev) => prev.filter((x) => x._key !== key))
-  const updItem = (key, k, v) => setLines((prev) => prev.map((x) => (x._key === key ? { ...x, [k]: v } : x)))
+  const addBlank = () => setLines((prev) => [...prev, { _key: 'new-' + Date.now() + Math.random(), itemId: null, sku: '', name: '', spec: '', description: '', brand: '', model: '', partNo: '', uom: 'PCS', quantity: 1, secondaryRequirements: '', remark: '', requiredDeliveryDate: '', photo: '', attachment: '' }])
+  // Index-based handlers for the shared ItemsTable.
+  const onLineChange = (i, patch) => setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
+  const onLineRemove = (i) => setLines((prev) => prev.filter((_, idx) => idx !== i))
   const toggleGroup = (g) => setOpenGroups((o) => (o.includes(g) ? o.filter((x) => x !== g) : [...o, g]))
   const toggleSupplier = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
 
@@ -92,7 +95,7 @@ export default function CreateRfq() {
   }, [suppliers, catFilter, supQuery])
 
   const canNext =
-    (step === 0 && form.title && form.deadline) ||
+    (step === 0 && form.title) ||
     (step === 1 && lines.length > 0) ||
     (step === 2 && picked.length > 0) ||
     step === 3
@@ -106,8 +109,8 @@ export default function CreateRfq() {
         deliveryLocation: form.deliveryLocation, paymentTerms: form.paymentTerms,
         budget: Number(form.budget) || 0,
         lines: lines.map((l) => ({
-          itemId: l.itemId, name: l.name, spec: l.spec, description: l.description,
-          qty: Number(l.qty) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
+          itemId: l.itemId, sku: l.sku || '', name: l.name, spec: l.spec, description: l.description,
+          qty: Number(l.quantity) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
           secondaryRequirements: l.secondaryRequirements, remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
         })),
       })
@@ -160,7 +163,7 @@ export default function CreateRfq() {
             <div className="sm:col-span-2"><label className="label">Description</label><textarea className="input min-h-24" value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Scope, context and special instructions…" /></div>
             <div><label className="label">Category</label><select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select></div>
             <div><label className="label">Currency</label><select className="input" value={form.currency} onChange={(e) => set('currency', e.target.value)}><option>USD</option><option>INR</option><option>EUR</option></select></div>
-            <div><label className="label">Submission Deadline *</label><input type="date" className="input" value={form.deadline} onChange={(e) => set('deadline', e.target.value)} /></div>
+            <div><label className="label">Submission Deadline <span className="font-normal lowercase text-ink-400">(optional)</span></label><input type="date" className="input" value={form.deadline} onChange={(e) => set('deadline', e.target.value)} /></div>
             <div><label className="label">Validity Period</label><input type="date" className="input" value={form.validity} onChange={(e) => set('validity', e.target.value)} /></div>
             <div><label className="label">Delivery Location</label><input className="input" value={form.deliveryLocation} onChange={(e) => set('deliveryLocation', e.target.value)} placeholder="OPRO Warehouse, Pune" /></div>
             <div><label className="label">Payment Terms</label><input className="input" value={form.paymentTerms} onChange={(e) => set('paymentTerms', e.target.value)} /></div>
@@ -179,89 +182,38 @@ export default function CreateRfq() {
           </div>
         )}
 
-        {/* STEP 1 — Items */}
+        {/* STEP 1 — Items (table) */}
         {step === 1 && (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <label className="btn-outline cursor-pointer text-xs">
-                  {importing ? <><Loader2 size={14} className="animate-spin" /> Reading…</> : <><FileSpreadsheet size={14} /> Import from Excel</>}
-                  <input type="file" hidden accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={(e) => e.target.files[0] && importExcel(e.target.files[0])} />
-                </label>
-                <span className="text-xs text-ink-400">or pick from the catalogue</span>
-              </div>
-              <div className="relative mb-2">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="btn-outline cursor-pointer text-sm">
+                {importing ? <><Loader2 size={14} className="animate-spin" /> Reading…</> : <><FileSpreadsheet size={14} /> Import from Excel</>}
+                <input type="file" hidden accept=".xlsx,.xls,.csv,.txt,.pdf" onChange={(e) => e.target.files[0] && importExcel(e.target.files[0])} />
+              </label>
+              <button className="btn-outline text-sm" onClick={addBlank}><Plus size={14} /> Add item</button>
+              <div className="relative min-w-48 flex-1">
                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                <input value={itemQuery} onChange={(e) => setItemQuery(e.target.value)} className="input py-2 pl-9" placeholder="Search items…" />
+                <input value={itemQuery} onChange={(e) => setItemQuery(e.target.value)} className="input py-2 pl-9" placeholder="Search the catalogue to add an item…" />
               </div>
-              <div className="rounded-xl border border-ink-100">
-                <div className="flex items-center gap-2 border-b border-ink-100 px-3 py-2 text-xs font-semibold text-ink-500"><ListTree size={14} /> Item Catalogue</div>
-                <div className="max-h-96 overflow-auto p-2">
-                  {groups.length === 0 && <p className="py-8 text-center text-sm text-ink-400">No items. Import a file or add to the catalogue.</p>}
-                  {groups.map(([group, items]) => (
-                    <div key={group} className="mb-1">
-                      <button onClick={() => toggleGroup(group)} className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-semibold text-ink-700 hover:bg-ink-50">
-                        <ChevronRight size={14} className={`transition ${openGroups.includes(group) ? 'rotate-90' : ''}`} />
-                        {group === 'Imported from file' && <Sparkles size={13} className="text-brand-500" />}
-                        {group}
-                        <span className="ml-auto text-xs font-normal text-ink-400">{items.length}</span>
-                      </button>
-                      {openGroups.includes(group) && (
-                        <div className="ml-4 space-y-1 border-l border-ink-100 pl-2">
-                          {items.map((it) => {
-                            const added = lines.find((x) => x._key === lineKey(it))
-                            return (
-                              <button key={lineKey(it)} onClick={() => addItem(it)} disabled={!!added}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition ${added ? 'cursor-default text-ink-300' : 'text-ink-600 hover:bg-brand-50 hover:text-brand-700'}`}>
-                                <span className="flex-1">{it.name} {it.spec && <span className="text-xs text-ink-400">· {it.spec}</span>}</span>
-                                {added ? <Check size={14} className="text-emerald-500" /> : <Plus size={14} />}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <span className="chip bg-brand-50 text-brand-700">{lines.length} items</span>
             </div>
 
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-bold text-ink-800">Selected Items</p>
-                <span className="chip bg-brand-50 text-brand-700">{lines.length}</span>
+            {itemQuery && (
+              <div className="flex flex-wrap gap-1.5">
+                {groups.flatMap(([, items]) => items).slice(0, 14).map((it) => {
+                  const added = lines.find((x) => x._key === lineKey(it))
+                  return (
+                    <button key={lineKey(it)} disabled={!!added} onClick={() => addItem(it)}
+                      className={`chip border text-xs ${added ? 'border-ink-200 text-ink-300' : 'border-brand-200 text-brand-700 hover:bg-brand-50'}`}>
+                      {added ? <Check size={12} /> : <Plus size={12} />} {it.name}{it.spec ? ` · ${it.spec}` : ''}
+                    </button>
+                  )
+                })}
+                {groups.flatMap(([, items]) => items).length === 0 && <span className="text-xs text-ink-400">No catalogue match — use “Add item” to add a blank row.</span>}
               </div>
-              {lines.length === 0 ? (
-                <div className="grid h-64 place-items-center rounded-xl border-2 border-dashed border-ink-200 text-sm text-ink-400">Add items from the catalogue</div>
-              ) : (
-                <div className="max-h-96 space-y-2 overflow-auto pr-1">
-                  {lines.map((it) => (
-                    <div key={it._key} className="rounded-xl border border-ink-100 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-ink-800">{it.name}{it.spec && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-xs text-ink-500">{it.spec}</span>}</p>
-                          <p className="text-xs text-ink-400">{[it.brand, it.model, it.partNo].filter(Boolean).join(' · ') || '—'}</p>
-                        </div>
-                        <button onClick={() => removeItem(it._key)} className="text-ink-300 hover:text-rose-500"><Trash2 size={16} /></button>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <input type="number" min={1} value={it.qty} onChange={(e) => updItem(it._key, 'qty', Math.max(1, +e.target.value))} className="input w-20 py-1.5" />
-                          <span className="text-xs text-ink-400">{it.uom}</span>
-                        </div>
-                        <input type="date" value={it.requiredDeliveryDate} onChange={(e) => updItem(it._key, 'requiredDeliveryDate', e.target.value)} title="Required delivery date" className="input py-1.5" />
-                        <input value={it.remark} onChange={(e) => updItem(it._key, 'remark', e.target.value)} placeholder="Remark" className="input col-span-2 py-1.5" />
-                        <input value={it.secondaryRequirements} onChange={(e) => updItem(it._key, 'secondaryRequirements', e.target.value)} placeholder="Secondary requirements (e.g. panel board for a fan)" className="input col-span-2 py-1.5" />
-                        <label className="col-span-2 flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-ink-200 px-2 py-1.5 text-xs text-ink-400 hover:bg-ink-50">
-                          <Upload size={13} /> {it.photo || 'Photo (browse)'}
-                          <input type="file" hidden accept="image/*" onChange={(e) => e.target.files[0] && updItem(it._key, 'photo', e.target.files[0].name)} />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
+
+            <ItemsTable rows={lines} onChange={onLineChange} onRemove={onLineRemove} mappable emptyHint="Import from Excel, search the catalogue, or click “Add item”." />
           </div>
         )}
 
@@ -319,7 +271,7 @@ export default function CreateRfq() {
               <div className="rounded-xl border border-ink-100 p-4">
                 <p className="mb-2 font-bold text-ink-800">{lines.length} Items</p>
                 <ul className="space-y-1 text-sm text-ink-600">
-                  {lines.map((it) => <li key={it._key}>· {it.name} × {it.qty} {it.uom}</li>)}
+                  {lines.map((it) => <li key={it._key}>· {it.name} × {it.quantity} {it.uom}</li>)}
                   {lines.length === 0 && <li className="text-ink-400">No items added</li>}
                 </ul>
               </div>

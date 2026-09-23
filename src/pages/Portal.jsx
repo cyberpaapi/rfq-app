@@ -19,8 +19,8 @@ export default function Portal() {
 
   useEffect(() => { Suppliers.list().then(setSuppliers) }, [])
 
-  // The 3 demo sign-in profiles (Supplier 1/2/3) — no password.
-  const profiles = (suppliers || []).filter((s) => /^supplier\s*\d/i.test(s.name))
+  // The 3 demo sign-in profiles (A/B/C) — no password.
+  const profiles = (suppliers || []).filter((s) => s.portalProfile)
   const supplier = suppliers?.find((s) => s.id === supplierId)
 
   // Load RFQs assigned to the signed-in supplier.
@@ -88,7 +88,7 @@ export default function Portal() {
                 <Send size={16} className="text-brand-500" />
               </button>
             ))}
-            {profiles.length === 0 && <Empty icon={Store} title="No supplier profiles" hint="Reset the demo data to seed Supplier 1/2/3." />}
+            {profiles.length === 0 && <Empty icon={Store} title="No supplier profiles" hint="Reset the demo data to seed suppliers A/B/C." />}
           </div>
         </Card>
       </div>
@@ -165,9 +165,18 @@ export default function Portal() {
           </div>
 
           {result && (
-            <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">
-              <PackageCheck size={18} className="shrink-0" />
-              <span>Quote submitted from <b>{result.quote.source}</b> — matched <b>{result.matched}/{result.total}</b> line items{result.unmatched?.length ? `; couldn't match: ${result.unmatched.join(', ')}` : ''}. The buyer has been notified.</span>
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">
+                <PackageCheck size={18} className="shrink-0" />
+                <span>Quote submitted from <b>{result.quote.source}</b> — matched <b>{result.matched}/{result.total}</b> line items{result.unmatched?.length ? `; couldn't match: ${result.unmatched.join(', ')}` : ''}. The buyer has been notified.</span>
+              </div>
+              {(result.usedUsdColumn || (result.currency && result.currency !== 'USD')) && (
+                <p className="rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                  💱 {result.usedUsdColumn
+                    ? 'Document showed both currencies — the USD prices were used directly.'
+                    : `Prices were in ${result.currency} and converted to USD at ${result.rate} per ${result.currency} (${result.rateSource}).`}
+                </p>
+              )}
             </div>
           )}
           {!result && (

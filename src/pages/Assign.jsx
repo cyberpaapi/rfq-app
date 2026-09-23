@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Search, Star, BadgeCheck, Check, Users, Send, Split, Package, X, ChevronDown,
-  SlidersHorizontal, Trophy, Pencil, Plus, Trash2, Loader2, ListPlus,
+  SlidersHorizontal, Trophy, Pencil, Plus, Trash2, Loader2, ListPlus, Link2,
 } from 'lucide-react'
 import { Rfqs, Suppliers, Tags, weightedScore } from '../api/client'
 import { Card, Avatar, Spinner, Tag, Empty, StatusBadge, Drawer } from '../components/ui'
@@ -48,6 +48,11 @@ export default function Assign() {
   const [showWeights, setShowWeights] = useState(false)
   const [rating, setRating] = useState(null)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const loadedId = useRef(null)
+  const requestId = useRef(0)
+  const supplierRequest = useRef(0)
 
   const ranked = useMemo(() => {
     return [...list]
@@ -56,25 +61,31 @@ export default function Assign() {
   }, [list, weights])
 
   const loadRfq = useCallback(async (rid) => {
+    const request = ++requestId.current
     const data = await Rfqs.get(rid)
+    if (request !== requestId.current) return
+    const sameRfq = loadedId.current === rid
+    loadedId.current = rid
     setRfq(data)
-    setSel(data.lines.map((l) => l.lineId))
+    setSel((current) => sameRfq ? current.filter((id) => data.lines.some((l) => l.lineId === id)) : data.lines.map((l) => l.lineId))
   }, [])
 
   useEffect(() => {
     Rfqs.list().then((all) => {
       setRfqs(all)
       const target = id || all[0]?.id
-      if (target) loadRfq(target)
-    })
-    Tags().then(setAllTags)
-    Suppliers.list().then((all) => setSupMap(Object.fromEntries(all.map((s) => [s.id, s]))))
+      if (target) loadRfq(target).catch((e) => setError(e.message))
+    }).catch((e) => setError(e.message))
+    Tags().then(setAllTags).catch((e) => setError(e.message))
+    Suppliers.list().then((all) => setSupMap(Object.fromEntries(all.map((s) => [s.id, s])))).catch((e) => setError(e.message))
   }, [id, loadRfq])
 
   const loadSuppliers = useCallback(async () => {
-    setList(await Suppliers.list({ q, category: cat === 'All' ? '' : cat, tag: activeTag || '' }))
+    const request = ++supplierRequest.current
+    const data = await Suppliers.list({ q, category: cat === 'All' ? '' : cat, tag: activeTag || '' })
+    if (request === supplierRequest.current) setList(data)
   }, [q, cat, activeTag])
-  useEffect(() => { loadSuppliers() }, [loadSuppliers])
+  useEffect(() => { loadSuppliers().catch((e) => setError(e.message)) }, [loadSuppliers])
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600) }
 
@@ -84,14 +95,17 @@ export default function Assign() {
   const assign = async (supplier, type) => {
     const lineIds = type === 'full' ? rfq.lines.map((l) => l.lineId) : sel
     if (type === 'partial' && lineIds.length === 0) return flash('Select at least one item for a partial RFQ.')
+    setBusy(true)
+    try {
     const res = await Rfqs.assign(rfq.id, { supplierId: supplier.id, type, lineIds })
     await loadRfq(rfq.id)
     await loadSuppliers()
     setAllTags(await Tags())
     flash(`Sent ${type === 'full' ? 'full RFQ' : `${lineIds.length} item(s)`} to ${supplier.name}. Tags updated: ${res.supplierTags.slice(-2).join(', ')}`)
+    } catch (e) { flash(e.message) } finally { setBusy(false) }
   }
 
-  const unassign = async (supplierId) => { await Rfqs.unassign(rfq.id, supplierId); loadRfq(rfq.id) }
+  const unassign = async (supplierId) => { setBusy(true); try { await Rfqs.unassign(rfq.id, supplierId); await loadRfq(rfq.id) } catch (e) { flash(e.message) } finally { setBusy(false) } }
 
   const submitRating = async ({ stars, note }) => {
     await Suppliers.rate(rating.id, { stars, note, rfqId: rfq.id })
@@ -102,6 +116,14 @@ export default function Assign() {
 
   const onItemsSaved = async () => { setEditorOpen(false); await loadRfq(rfq.id); flash('Items updated') }
 
+  const generateLink = async () => {
+    const url = `${window.location.origin}/r/${rfq.id}`
+    try { await navigator.clipboard.writeText(url) } catch { /* clipboard may be blocked */ }
+    flash(`RFQ link copied — ${url}`)
+    window.open(url, '_blank', 'noopener')
+  }
+
+  if (error) return <Card className="p-6 text-rose-700">{error}</Card>
   if (rfqs === null) return <Card><Spinner label="Loading…" /></Card>
   if (!rfq) return <Card className="p-6"><Empty icon={Package} title="No RFQs yet" hint="Import a document to create one." /></Card>
 
@@ -119,7 +141,10 @@ export default function Assign() {
           </div>
           <p className="mt-1 text-sm text-ink-500">Pick items on the left, choose suppliers on the right. Send the whole RFQ or a partial set.</p>
         </div>
-        <RfqPicker rfqs={rfqs} current={rfq} onPick={(rid) => nav(`/assign/${rid}`)} />
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={generateLink} className="btn-outline" title="Create a public link suppliers can open to download the RFQ and upload their response"><Link2 size={16} /> Generate RFQ link</button>
+          <RfqPicker rfqs={rfqs} current={rfq} onPick={(rid) => { if (!busy) { setRfq(null); nav(`/assign/${rid}`) } }} />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
@@ -145,7 +170,7 @@ export default function Assign() {
                 const aTo = assignedTo(l.lineId)
                 return (
                   <div key={l.lineId} className={`flex items-center gap-3 rounded-xl border p-3 transition ${checked ? 'border-brand-300 bg-brand-50/40' : 'border-ink-100'}`}>
-                    <button onClick={() => toggleLine(l.lineId)}
+                    <button role="checkbox" aria-label={`Select ${l.name}`} aria-checked={checked} onClick={() => toggleLine(l.lineId)}
                       className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${checked ? 'border-brand-500 bg-brand-600 text-white' : 'border-ink-300'}`}>
                       {checked && <Check size={13} />}
                     </button>
@@ -157,7 +182,7 @@ export default function Assign() {
                       <p className="text-xs text-ink-400">{l.qty} {l.uom}{[l.brand, l.model].filter(Boolean).length ? ` · ${[l.brand, l.model].filter(Boolean).join(' ')}` : ''}{l.requiredDeliveryDate ? ` · by ${l.requiredDeliveryDate}` : ''}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1">
-                      {aTo.map((a) => <span key={a.id} className="chip bg-emerald-50 text-emerald-700">{a.supplierName.split(' ')[0]}</span>)}
+                      {aTo.map((a) => <span key={a.id} className="chip bg-emerald-50 text-emerald-700">{a.supplierName}</span>)}
                     </div>
                   </div>
                 )
@@ -187,7 +212,7 @@ export default function Assign() {
                     <span className={`chip ${a.type === 'full' ? 'bg-brand-50 text-brand-700' : 'bg-amber-50 text-amber-700'}`}>{a.type}</span>
                     <button onClick={() => setRating({ id: a.supplierId, name: a.supplierName })} title="Rate supplier"
                       className="rounded-lg p-1.5 text-ink-400 hover:bg-amber-50 hover:text-amber-600"><Star size={16} /></button>
-                    <button onClick={() => unassign(a.supplierId)} title="Remove" className="text-ink-300 hover:text-rose-500"><X size={16} /></button>
+                    <button disabled={busy || !!rfq.award} onClick={() => unassign(a.supplierId)} title="Remove" className="text-ink-300 hover:text-rose-500"><X size={16} /></button>
                   </div>
                 ))}
               </div>
@@ -262,8 +287,8 @@ export default function Assign() {
                   {s.tags.slice(0, 5).map((t) => <Tag key={t} tone={activeTag === t ? 'brand' : 'ink'}>{t}</Tag>)}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button onClick={() => assign(s, 'full')} className="btn-primary flex-1 py-1.5 text-xs"><Send size={13} /> Full RFQ</button>
-                  <button onClick={() => assign(s, 'partial')} className="btn-outline flex-1 py-1.5 text-xs"><Split size={13} /> Partial</button>
+                  <button disabled={busy || !rfq.lines.length || !!rfq.award || s.qualified === false} onClick={() => assign(s, 'full')} className="btn-primary flex-1 py-1.5 text-xs"><Send size={13} /> Full RFQ</button>
+                  <button disabled={busy || !sel.length || !!rfq.award || s.qualified === false} onClick={() => assign(s, 'partial')} className="btn-outline flex-1 py-1.5 text-xs"><Split size={13} /> Partial</button>
                 </div>
               </Card>
             ))}
@@ -289,6 +314,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
   const [lines, setLines] = useState([])
   const [saving, setSaving] = useState(false)
   const [expanded, setExpanded] = useState(null)
+  const [error, setError] = useState('')
 
   useEffect(() => { if (open) { setLines(rfq.lines.map((l) => ({ ...l }))); setExpanded(null) } }, [open, rfq])
 
@@ -301,7 +327,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
     try {
       const clean = lines.filter((l) => (l.name || '').trim()).map((l) => ({
         lineId: l.lineId, itemId: l.itemId || null, name: l.name, spec: l.spec || '', description: l.description || '',
-        qty: Number(l.qty) || 1, uom: l.uom || 'PCS', brand: l.brand || '', model: l.model || '', partNo: l.partNo || '',
+        qty: Number(l.qty), uom: l.uom || 'PCS', brand: l.brand || '', model: l.model || '', partNo: l.partNo || '',
         secondaryRequirements: l.secondaryRequirements || '',
         remark: l.remark || '', requiredDeliveryDate: l.requiredDeliveryDate || '', photo: l.photo || '', attachment: l.attachment || '',
       }))
@@ -312,7 +338,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
         .filter((a) => a.lineIds.length > 0)
       await Rfqs.update(rfq.id, { lines: clean, assignments })
       onSaved()
-    } finally { setSaving(false) }
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   return (
@@ -322,6 +348,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
         <button className="btn-primary" disabled={saving} onClick={save}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Save items'}</button>
       </>}>
       <div className="space-y-2">
+        {error && <p className="text-sm text-rose-700">{error}</p>}
         {lines.map((l, i) => (
           <div key={i} className="rounded-xl border border-ink-100 p-3">
             <div className="flex flex-wrap items-center gap-2">

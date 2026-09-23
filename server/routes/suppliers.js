@@ -1,9 +1,42 @@
 import { Router } from 'express'
+import * as XLSX from 'xlsx'
 import * as store from '../store.js'
 import { newId } from '../store.js'
 import { addTagUnique, normalize } from '../lib/tags.js'
+import { upload } from '../lib/upload.js'
 
 const router = Router()
+
+const pick = (row, ...names) => {
+  const keys = Object.keys(row)
+  for (const n of names) {
+    const k = keys.find((key) => normalize(key) === normalize(n))
+    if (k != null && row[k] != null) return String(row[k]).trim()
+  }
+  return ''
+}
+
+// Build a supplier record from a loose body (used by create + bulk upload).
+const makeSupplier = (b) => {
+  let tags = []
+  for (const t of b.tags || []) tags = addTagUnique(tags, t)
+  return {
+    id: newId('SUP'),
+    name: b.name,
+    category: b.category || 'General',
+    email: b.email || '',
+    phone: b.phone || '',
+    location: b.location || '',
+    qualified: b.qualified ?? true,
+    rating: b.rating ?? 0,
+    scores: b.scores || { price: 70, quality: 70, delivery: 70 },
+    ratings: [],
+    previouslyInvited: false,
+    notes: b.notes || '',
+    tags,
+    createdAt: Date.now(),
+  }
+}
 
 // GET /api/suppliers?q=&tag=&category=
 router.get('/', (req, res) => {
@@ -23,27 +56,42 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const b = req.body || {}
   if (!b.name) return res.status(400).json({ error: 'name is required' })
-  let tags = []
-  for (const t of b.tags || []) tags = addTagUnique(tags, t)
-  const supplier = {
-    id: newId('SUP'),
-    name: b.name,
-    category: b.category || 'General',
-    email: b.email || '',
-    phone: b.phone || '',
-    location: b.location || '',
-    qualified: b.qualified ?? true,
-    rating: b.rating ?? 0,
-    scores: b.scores || { price: 70, quality: 70, delivery: 70 },
-    ratings: [],
-    previouslyInvited: false,
-    notes: b.notes || '',
-    tags,
-    createdAt: Date.now(),
-  }
+  const supplier = makeSupplier(b)
   store.insert('suppliers', supplier)
-  store.registerTags(tags)
+  store.registerTags(supplier.tags)
   res.status(201).json(supplier)
+})
+
+// POST /api/suppliers/upload  (multipart: file)
+// Headers: Name | Category | Email | Phone | Location | Other Notes
+router.post('/upload', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'file is required' })
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const rows = ws ? XLSX.utils.sheet_to_json(ws, { defval: '' }) : []
+    let added = 0, skipped = 0
+    const suppliers = []
+    for (const row of rows) {
+      const name = pick(row, 'Name', 'Supplier Name', 'Supplier')
+      if (!name) { skipped++; continue }
+      const s = makeSupplier({
+        name,
+        category: pick(row, 'Category', 'Category Name') || 'General',
+        email: pick(row, 'Email', 'Email Address'),
+        phone: pick(row, 'Phone', 'Phone Number', 'Mobile'),
+        location: pick(row, 'Location', 'City', 'Address'),
+        notes: pick(row, 'Other Notes', 'Other Note', 'Notes', 'Note'),
+      })
+      store.insert('suppliers', s)
+      suppliers.push(s)
+      added++
+    }
+    res.json({ added, skipped, total: rows.length, suppliers })
+  } catch (e) {
+    console.error('[suppliers/upload] error:', e)
+    res.status(500).json({ error: e.message })
+  }
 })
 
 // Rate a supplier when an order completes (1-5 stars + optional note).

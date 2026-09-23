@@ -42,6 +42,7 @@ router.post('/', upload.single('file'), async (req, res) => {
         quantity: it.quantity ?? 1,
         uom: it.uom || item?.uom || 'PCS',
         itemId: item?.id || null,
+        sku: item?.sku || '',
         baseName: item?.baseName,
         tags: item?.tags || [],
         isNew: created,
@@ -55,7 +56,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     if (attachTo) {
       rfq = store.find('rfqs', attachTo)
       if (rfq) {
-        const newLines = reconciled.map((r) => ({ lineId: newId('LN'), itemId: r.itemId, name: r.name, spec: r.spec, description: r.description, qty: r.quantity, uom: r.uom, brand: r.brand, model: r.model, partNo: r.partNo, secondaryRequirements: r.secondaryRequirements, photo: '', remark: '', requiredDeliveryDate: '', attachment: '' }))
+        const newLines = reconciled.map((r) => ({ lineId: newId('LN'), itemId: r.itemId, sku: r.sku, name: r.name, spec: r.spec, description: r.description, qty: r.quantity, uom: r.uom, brand: r.brand, model: r.model, partNo: r.partNo, secondaryRequirements: r.secondaryRequirements, photo: '', remark: '', requiredDeliveryDate: '', attachment: '' }))
         store.update('rfqs', rfq.id, { lines: [...rfq.lines, ...newLines] })
       }
     }

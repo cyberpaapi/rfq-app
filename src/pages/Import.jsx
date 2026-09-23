@@ -2,12 +2,13 @@ import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Sparkles, UploadCloud, FileText, FileSpreadsheet, Image as ImageIcon, File,
-  Plus, Loader2, ArrowRight, X, Trash2, ChevronDown, Layers, MapPin,
+  Plus, Loader2, ArrowRight, X, ChevronDown, MapPin,
   ScanSearch, Boxes, ListChecks, TriangleAlert, FilePlus2, RefreshCw,
 } from 'lucide-react'
 import { Ingest, Rfqs, Cluster } from '../api/client'
 import { Card, Empty } from '../components/ui'
 import DocViewer from '../components/DocViewer'
+import ItemsTable from '../components/ItemsTable'
 
 const iconFor = (name = '') => {
   const e = name.split('.').pop()?.toLowerCase()
@@ -17,7 +18,7 @@ const iconFor = (name = '') => {
   return File
 }
 
-const blankRow = () => ({ name: '', spec: '', quantity: 1, uom: 'PCS', description: '', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', tags: [], isNew: true, pages: [], sources: [], docId: null })
+const blankRow = () => ({ name: '', spec: '', quantity: 1, uom: 'PCS', description: '', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', itemId: null, sku: '', tags: [], isNew: true, pages: [], sources: [], docId: null })
 
 const VERIFIABLE = ['pdf', 'images', 'text', 'rows']
 
@@ -132,7 +133,7 @@ export default function Import() {
       const rfq = await Rfqs.create({
         title: docs[0] ? docs[0].name.replace(/\.[^.]+$/, '') : 'Imported RFQ',
         description: docs.length ? `Imported from ${docs.map((d) => d.name).join(', ')}` : '',
-        lines: rows.filter((r) => r.name.trim()).map((r) => ({ itemId: r.itemId, name: r.name, spec: r.spec, description: r.description, qty: Number(r.quantity) || 1, uom: r.uom, brand: r.brand || '', model: r.model || '', partNo: r.partNo || '', secondaryRequirements: r.secondaryRequirements || '', remark: r.remark || '', requiredDeliveryDate: r.requiredDeliveryDate || '' })),
+        lines: rows.filter((r) => r.name.trim()).map((r) => ({ itemId: r.itemId, sku: r.sku || '', name: r.name, spec: r.spec, description: r.description, qty: Number(r.quantity) || 1, uom: r.uom, brand: r.brand || '', model: r.model || '', partNo: r.partNo || '', secondaryRequirements: r.secondaryRequirements || '', remark: r.remark || '', requiredDeliveryDate: r.requiredDeliveryDate || '' })),
       })
       nav(`/assign/${rfq.id}`)
     } finally { setCreating(false) }
@@ -214,7 +215,12 @@ export default function Import() {
           <div className={`grid gap-5 ${showViewer ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
             <div className="min-w-0">
               {view === 'basic' ? (
-                <BasicTable rows={rows} setRow={setRow} removeRow={removeRow} active={active} jump={jump} instancesFor={instancesFor} />
+                <ItemsTable rows={rows} onChange={setRow} onRemove={removeRow} mappable emptyHint="Add an item or process another document."
+                  nameExtra={(row, i) => {
+                    const key = `b${i}`
+                    const inst = instancesFor(row)
+                    return <PageLabel instances={inst} activeIdx={active?.key === key ? active.idx : -1} onClick={() => jump(key, inst)} />
+                  }} />
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -286,94 +292,3 @@ function ClubCard({ club, idx, active, jump, instancesFor }) {
   )
 }
 
-// Editable cell: shows up to 3 lines clamped; click to expand into a full editor.
-function Cell({ value, onChange, placeholder = '—', type = 'text', className = '' }) {
-  const [editing, setEditing] = useState(false)
-  if (editing) {
-    if (type === 'textarea') return <textarea autoFocus value={value ?? ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} rows={4} className={`w-full resize-y rounded-md border border-brand-300 bg-white p-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 ${className}`} />
-    return <input autoFocus type={type} value={value ?? ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setEditing(false)} className={`w-full rounded-md border border-brand-300 bg-white p-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 ${className}`} />
-  }
-  const has = value != null && value !== ''
-  return <div onClick={() => setEditing(true)} title="Click to edit / expand" className={`min-h-[1.5rem] cursor-text whitespace-pre-wrap break-words text-sm line-clamp-3 ${className}`}>{has ? String(value) : <span className="text-ink-300">{placeholder}</span>}</div>
-}
-
-// Specification cell shows spec + extracted description together (clamped); edit
-// targets the spec field (description lives in the row detail expander).
-function SpecCell({ row, on }) {
-  const [editing, setEditing] = useState(false)
-  if (editing) return <textarea autoFocus value={row.spec || ''} onChange={(e) => on({ spec: e.target.value })} onBlur={() => setEditing(false)} placeholder="Specification" rows={4} className="w-full resize-y rounded-md border border-brand-300 bg-white p-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-500/20" />
-  const combined = [row.spec, row.description].filter(Boolean).join('\n')
-  return <div onClick={() => setEditing(true)} title="Click to edit / expand" className="min-h-[1.5rem] cursor-text whitespace-pre-wrap break-words text-sm line-clamp-3">{combined || <span className="text-ink-300">—</span>}</div>
-}
-
-function PhotoCell({ value, onChange }) {
-  return (
-    <label className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
-      <UploadCloud size={14} /> {value ? <span className="max-w-24 truncate">{value}</span> : 'browse'}
-      <input type="file" hidden accept="image/*" onChange={(e) => e.target.files[0] && onChange(e.target.files[0].name)} />
-    </label>
-  )
-}
-
-function BasicTable({ rows, setRow, removeRow, active, jump, instancesFor }) {
-  if (!rows.length) return <Empty icon={Layers} title="No items" hint="Add an item or process another document." />
-  const HEADERS = ['Item Name', 'Specification', 'Brand', 'Model No.', 'Part No.', 'Quantity', 'Unit', 'Upload Photo', 'Remark']
-  return (
-    <div className="overflow-x-auto rounded-xl border border-ink-100">
-      <table className="w-full min-w-[1040px] border-collapse text-sm">
-        <thead>
-          <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
-            {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}</th>)}
-            <th className="border-b border-ink-200 px-2 py-2.5"></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-ink-100">
-          {rows.map((row, i) => <BasicRow key={i} row={row} i={i} setRow={setRow} removeRow={removeRow} active={active} jump={jump} instancesFor={instancesFor} />)}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function BasicRow({ row, i, setRow, removeRow, active, jump, instancesFor }) {
-  const [open, setOpen] = useState(false)
-  const key = `b${i}`
-  const inst = instancesFor(row)
-  const on = (patch) => setRow(i, patch)
-  return (
-    <>
-      <tr className="align-top hover:bg-ink-50/40">
-        <td className="w-56 px-3 py-2">
-          <div className="flex items-start gap-1">
-            <button onClick={() => setOpen((o) => !o)} title="More fields" className="mt-0.5 shrink-0 text-ink-300 hover:text-brand-600"><ChevronDown size={14} className={`transition ${open ? 'rotate-180' : ''}`} /></button>
-            <div className="min-w-0 flex-1">
-              <Cell value={row.name} onChange={(v) => on({ name: v })} placeholder="Item name" type="textarea" className="font-semibold text-ink-800" />
-              <div className="mt-1"><PageLabel instances={inst} activeIdx={active?.key === key ? active.idx : -1} onClick={() => jump(key, inst)} /></div>
-              {(row.secondaryRequirements || '').trim() && <p className="mt-1 line-clamp-2 text-[11px] text-sky-600">+ also needs: {row.secondaryRequirements}</p>}
-            </div>
-          </div>
-        </td>
-        <td className="w-64 px-3 py-2"><SpecCell row={row} on={on} /></td>
-        <td className="w-32 px-3 py-2"><Cell value={row.brand} onChange={(v) => on({ brand: v })} type="textarea" /></td>
-        <td className="w-28 px-3 py-2"><Cell value={row.model} onChange={(v) => on({ model: v })} /></td>
-        <td className="w-28 px-3 py-2"><Cell value={row.partNo} onChange={(v) => on({ partNo: v })} /></td>
-        <td className="w-20 px-3 py-2"><Cell value={row.quantity} onChange={(v) => on({ quantity: v })} type="number" className="text-right" /></td>
-        <td className="w-20 px-3 py-2"><Cell value={row.uom} onChange={(v) => on({ uom: v })} placeholder="Unit" /></td>
-        <td className="w-28 px-3 py-2"><PhotoCell value={row.photo} onChange={(v) => on({ photo: v })} /></td>
-        <td className="w-40 px-3 py-2"><Cell value={row.remark} onChange={(v) => on({ remark: v })} type="textarea" /></td>
-        <td className="px-2 py-2"><button onClick={() => removeRow(i)} className="rounded-lg p-1.5 text-ink-300 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button></td>
-      </tr>
-      {open && (
-        <tr className="bg-ink-50/50">
-          <td colSpan={10} className="px-4 py-3">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div><label className="mb-1 block text-xs font-semibold text-ink-500">Required delivery date</label><input type="date" value={row.requiredDeliveryDate || ''} onChange={(e) => on({ requiredDeliveryDate: e.target.value })} className="input py-1.5 text-sm" /></div>
-              <div className="sm:col-span-2"><label className="mb-1 block text-xs font-semibold text-ink-500">Secondary requirements <span className="font-normal text-ink-400">(needed alongside, e.g. panel board for a fan)</span></label><textarea value={row.secondaryRequirements || ''} onChange={(e) => on({ secondaryRequirements: e.target.value })} className="input min-h-14 text-sm" /></div>
-              <div className="sm:col-span-3"><label className="mb-1 block text-xs font-semibold text-ink-500">Additional details</label><textarea value={row.description || ''} onChange={(e) => on({ description: e.target.value })} className="input min-h-14 text-sm" /></div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  )
-}

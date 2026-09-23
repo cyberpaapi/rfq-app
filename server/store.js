@@ -6,7 +6,7 @@ import { nanoid } from 'nanoid'
 import { deriveBaseName, addTagUnique, normalize } from './lib/tags.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = join(__dirname, 'data')
+const DATA_DIR = process.env.RFQ_DATA_DIR || join(__dirname, 'data')
 const DB_PATH = join(DATA_DIR, 'db.json')
 
 // Fixed dates so the seeded demo always looks "current" relative to the doc.
@@ -16,18 +16,33 @@ const day = (n) => new Date(now + n * DAY).toISOString().slice(0, 10)
 
 const seed = () => ({
   suppliers: [
-    { id: 'SUP-001', name: 'Supplier 1', category: 'Electronics', email: 'sales@lumina.co', phone: '+91 98200 11111', location: 'Mumbai, IN', qualified: true, rating: 4.7, scores: { price: 78, quality: 92, delivery: 85 }, ratings: [], previouslyInvited: true, tags: ['Wall Light', 'Spike Light', 'LED'], notes: 'Preferred lighting vendor.', createdAt: now },
-    { id: 'SUP-002', name: 'Supplier 2', category: 'Electronics', email: 'rfq@brightspark.com', phone: '+91 99000 22222', location: 'Pune, IN', qualified: true, rating: 4.4, scores: { price: 88, quality: 80, delivery: 76 }, ratings: [], previouslyInvited: true, tags: ['Foot Light', 'Flood Light', 'LED'], notes: '', createdAt: now },
-    { id: 'SUP-003', name: 'Supplier 3', category: 'Raw Materials', email: 'bids@novasteel.in', phone: '+91 97000 33333', location: 'Jamshedpur, IN', qualified: true, rating: 4.1, scores: { price: 72, quality: 82, delivery: 70 }, ratings: [], previouslyInvited: false, tags: ['Steel', 'ISMB', 'Angle'], notes: '', createdAt: now },
+    { id: 'SUP-001', name: 'A', portalProfile: true, category: 'Electronics', email: 'sales@a.co', phone: '+91 98200 11111', location: 'Mumbai, IN', qualified: true, rating: 4.7, scores: { price: 78, quality: 92, delivery: 85 }, ratings: [], previouslyInvited: true, tags: ['Wall Light', 'Spike Light', 'LED'], notes: 'Preferred lighting vendor.', createdAt: now },
+    { id: 'SUP-002', name: 'B', portalProfile: true, category: 'Electronics', email: 'rfq@b.com', phone: '+91 99000 22222', location: 'Pune, IN', qualified: true, rating: 4.4, scores: { price: 88, quality: 80, delivery: 76 }, ratings: [], previouslyInvited: true, tags: ['Foot Light', 'Flood Light', 'LED'], notes: '', createdAt: now },
+    { id: 'SUP-003', name: 'C', portalProfile: true, category: 'Raw Materials', email: 'bids@c.in', phone: '+91 97000 33333', location: 'Jamshedpur, IN', qualified: true, rating: 4.1, scores: { price: 72, quality: 82, delivery: 70 }, ratings: [], previouslyInvited: false, tags: ['Steel', 'ISMB', 'Angle'], notes: '', createdAt: now },
     { id: 'SUP-004', name: 'Apex Industrial Services', category: 'Services', email: 'hello@apexsvc.com', phone: '+91 96000 44444', location: 'Bengaluru, IN', qualified: true, rating: 3.9, scores: { price: 84, quality: 68, delivery: 72 }, ratings: [], previouslyInvited: false, tags: ['AMC', 'HVAC'], notes: '', createdAt: now },
     { id: 'SUP-005', name: 'GreenSource Materials', category: 'Raw Materials', email: 'sales@greensource.in', phone: '+91 95000 55555', location: 'Ahmedabad, IN', qualified: true, rating: 4.5, scores: { price: 90, quality: 86, delivery: 80 }, ratings: [], previouslyInvited: false, tags: ['Sand', 'Cement', 'Aggregate'], notes: '', createdAt: now },
   ],
   items: [
-    mkItem({ name: 'Wall Light 6W', uom: 'PCS', category: 'Electronics', brand: 'Lumina', extraTags: ['LED'] }),
-    mkItem({ name: 'Spike Light 12W', uom: 'PCS', category: 'Electronics', brand: 'Lumina' }),
+    mkItem({
+      name: 'Wall Light 6W', sku: 'LM-WL6D', uom: 'PCS', category: 'Electronics', brand: 'Lumina', extraTags: ['LED'],
+      priceHistory: [
+        { price: 1.85, qty: 80, supplierName: 'A', rfqId: 'RFQ-2025-0011', rfqTitle: 'Indoor Fixtures 2024', at: now - 400 * DAY },
+        { price: 1.62, qty: 120, supplierName: 'A', rfqId: 'RFQ-2025-0044', rfqTitle: 'Office Fit-out', at: now - 200 * DAY },
+        { price: 1.32, qty: 50, supplierName: 'A', rfqId: 'RFQ-2026-0039', rfqTitle: 'Landscape Lighting', at: now - 20 * DAY },
+      ],
+      lastBoughtPrice: 1.32, lastBoughtAt: now - 20 * DAY,
+    }),
+    mkItem({
+      name: 'Copper Cable 2.5sqmm', sku: 'VW-CU25', uom: 'MTR', category: 'Electronics', brand: 'Volt & Wire',
+      priceHistory: [
+        { price: 0.48, qty: 2000, supplierName: 'B', rfqId: 'RFQ-2025-0033', rfqTitle: 'Cabling Bulk', at: now - 150 * DAY },
+        { price: 0.44, qty: 3000, supplierName: 'B', rfqId: 'RFQ-2026-0009', rfqTitle: 'Rough-in cabling', at: now - 40 * DAY },
+      ],
+      lastBoughtPrice: 0.44, lastBoughtAt: now - 40 * DAY,
+    }),
+    mkItem({ name: 'Spike Light 12W', sku: 'LM-SPK12', uom: 'PCS', category: 'Electronics', brand: 'Lumina' }),
     mkItem({ name: 'Sand 5kg', uom: 'BAG', category: 'Raw Materials' }),
     mkItem({ name: 'Sand 10kg', uom: 'BAG', category: 'Raw Materials' }),
-    mkItem({ name: 'Copper Cable 2.5sqmm', uom: 'MTR', category: 'Electronics', brand: 'Volt & Wire' }),
   ],
   rfqs: [
     // Active RFQ with two quotes — drives Compare / Award / Reports.
@@ -45,9 +60,9 @@ const seed = () => ({
         line('LN-42-4', { name: 'Foot Light Type-1', spec: 'recessed step light', qty: 35, uom: 'PCS', brand: 'Brightspark', model: 'FL-1', partNo: 'BS-FL1', requiredDeliveryDate: day(25) }),
       ],
       assignments: [
-        { id: 'ASG-42-1', supplierId: 'SUP-001', supplierName: 'Supplier 1', type: 'full', lineIds: ['LN-42-1', 'LN-42-2', 'LN-42-3', 'LN-42-4'], createdAt: now - 10 * DAY },
-        { id: 'ASG-42-2', supplierId: 'SUP-002', supplierName: 'Supplier 2', type: 'full', lineIds: ['LN-42-1', 'LN-42-2', 'LN-42-3', 'LN-42-4'], createdAt: now - 10 * DAY },
-        { id: 'ASG-42-3', supplierId: 'SUP-003', supplierName: 'Supplier 3', type: 'full', lineIds: ['LN-42-1', 'LN-42-2', 'LN-42-3', 'LN-42-4'], createdAt: now - 10 * DAY },
+        { id: 'ASG-42-1', supplierId: 'SUP-001', supplierName: 'A', type: 'full', lineIds: ['LN-42-1', 'LN-42-2', 'LN-42-3', 'LN-42-4'], createdAt: now - 10 * DAY },
+        { id: 'ASG-42-2', supplierId: 'SUP-002', supplierName: 'B', type: 'full', lineIds: ['LN-42-1', 'LN-42-2', 'LN-42-3', 'LN-42-4'], createdAt: now - 10 * DAY },
+        { id: 'ASG-42-3', supplierId: 'SUP-003', supplierName: 'C', type: 'full', lineIds: ['LN-42-1', 'LN-42-2', 'LN-42-3', 'LN-42-4'], createdAt: now - 10 * DAY },
       ],
     },
     // Published, one response in — appears in pipeline / aging.
@@ -63,7 +78,7 @@ const seed = () => ({
         line('LN-41-2', { name: 'ISA 50x50x6', spec: 'Equal angle', qty: 1200, uom: 'KG', brand: 'NovaSteel', model: 'ISA50', partNo: 'NS-A50' }),
       ],
       assignments: [
-        { id: 'ASG-41-1', supplierId: 'SUP-003', supplierName: 'Supplier 3', type: 'full', lineIds: ['LN-41-1', 'LN-41-2'], createdAt: now - 4 * DAY },
+        { id: 'ASG-41-1', supplierId: 'SUP-003', supplierName: 'C', type: 'full', lineIds: ['LN-41-1', 'LN-41-2'], createdAt: now - 4 * DAY },
         { id: 'ASG-41-2', supplierId: 'SUP-005', supplierName: 'GreenSource Materials', type: 'full', lineIds: ['LN-41-1', 'LN-41-2'], createdAt: now - 4 * DAY },
       ],
     },
@@ -76,13 +91,13 @@ const seed = () => ({
       paymentTerms: '30 days net', budget: 6200, attachments: [],
       approvals: { hod: { decision: 'approved', by: 'Samir Panigrahi', at: now - 22 * DAY }, finance: { decision: 'approved', by: 'Priya Nair', at: now - 21 * DAY } },
       clarifications: [],
-      award: { type: 'full', supplierId: 'SUP-001', supplierName: 'Supplier 1', amount: 5180, at: now - 20 * DAY },
+      award: { type: 'full', supplierId: 'SUP-001', supplierName: 'A', amount: 5180, at: now - 20 * DAY },
       createdAt: now - 35 * DAY,
       lines: [
         line('LN-39-1', { name: 'Panel Light 36W', spec: '600x600 recessed', qty: 80, uom: 'PCS', brand: 'Lumina', model: 'PL-36', partNo: 'LM-PL36' }),
       ],
       assignments: [
-        { id: 'ASG-39-1', supplierId: 'SUP-001', supplierName: 'Supplier 1', type: 'full', lineIds: ['LN-39-1'], createdAt: now - 30 * DAY },
+        { id: 'ASG-39-1', supplierId: 'SUP-001', supplierName: 'A', type: 'full', lineIds: ['LN-39-1'], createdAt: now - 30 * DAY },
       ],
     },
     // Draft — nothing sent yet.
@@ -101,7 +116,7 @@ const seed = () => ({
   ],
   quotes: [
     {
-      id: 'QTE-42-001', rfqId: 'RFQ-2026-0042', supplierId: 'SUP-001', supplierName: 'Supplier 1',
+      id: 'QTE-42-001', rfqId: 'RFQ-2026-0042', supplierId: 'SUP-001', supplierName: 'A',
       paymentTerms: '30 days net', notes: 'Bulk discount applied.', submittedAt: now - 6 * DAY,
       lines: [
         { lineId: 'LN-42-1', name: 'Wall Light', rate: 1.32, qty: 50, leadTime: '18 days', warranty: '2 years', eta: day(18), remark: '4W non-dimmable offered' },
@@ -111,7 +126,7 @@ const seed = () => ({
       ],
     },
     {
-      id: 'QTE-42-002', rfqId: 'RFQ-2026-0042', supplierId: 'SUP-002', supplierName: 'Supplier 2',
+      id: 'QTE-42-002', rfqId: 'RFQ-2026-0042', supplierId: 'SUP-002', supplierName: 'B',
       paymentTerms: 'Advance 50%', notes: '', submittedAt: now - 5 * DAY,
       lines: [
         { lineId: 'LN-42-1', name: 'Wall Light', rate: 4.63, qty: 50, leadTime: '22 days', warranty: '3 years', eta: day(22), remark: 'Triac dimming, CRI80 (req CRI90 - clarify)' },
@@ -121,7 +136,7 @@ const seed = () => ({
       ],
     },
     {
-      id: 'QTE-41-001', rfqId: 'RFQ-2026-0041', supplierId: 'SUP-003', supplierName: 'Supplier 3',
+      id: 'QTE-41-001', rfqId: 'RFQ-2026-0041', supplierId: 'SUP-003', supplierName: 'C',
       paymentTerms: '45 days net', notes: '', submittedAt: now - 3 * DAY,
       lines: [
         { lineId: 'LN-41-1', name: 'ISMB 200', rate: 0.82, qty: 4000, leadTime: '28 days', warranty: 'NA', eta: day(28), remark: '' },
@@ -131,13 +146,13 @@ const seed = () => ({
   ],
   audit: [
     { id: 'AUD-seed-1', rfqId: 'RFQ-2026-0042', user: 'Madhu', action: 'Moved to Evaluation', field: 'Status', old: 'Responses Received', value: 'Evaluation', at: now - 1 * DAY },
-    { id: 'AUD-seed-2', rfqId: 'RFQ-2026-0042', user: 'System', action: 'Quote received from Supplier 2', field: 'Quotes', old: '1', value: '2', at: now - 5 * DAY },
+    { id: 'AUD-seed-2', rfqId: 'RFQ-2026-0042', user: 'System', action: 'Quote received from B', field: 'Quotes', old: '1', value: '2', at: now - 5 * DAY },
     { id: 'AUD-seed-3', rfqId: 'RFQ-2026-0039', user: 'Priya Nair', action: 'Approved costing sheet', field: 'Approval', old: '—', value: 'Approved', at: now - 21 * DAY },
   ],
   notifications: [
-    { id: 'NTF-seed-1', type: 'response', title: 'New quote from Supplier 2', rfqId: 'RFQ-2026-0042', unread: true, at: now - 5 * DAY },
+    { id: 'NTF-seed-1', type: 'response', title: 'New quote from B', rfqId: 'RFQ-2026-0042', unread: true, at: now - 5 * DAY },
     { id: 'NTF-seed-2', type: 'deadline', title: 'Deadline approaching — Structural Steel', rfqId: 'RFQ-2026-0041', unread: true, at: now - 1 * DAY },
-    { id: 'NTF-seed-3', type: 'award', title: 'Office Fit-out awarded to Supplier 1', rfqId: 'RFQ-2026-0039', unread: false, at: now - 20 * DAY },
+    { id: 'NTF-seed-3', type: 'award', title: 'Office Fit-out awarded to A', rfqId: 'RFQ-2026-0039', unread: false, at: now - 20 * DAY },
   ],
   tags: ['Wall Light', 'Spike Light', 'LED', 'Foot Light', 'Flood Light', 'Steel', 'ISMB', 'Angle', 'AMC', 'HVAC', 'Sand', 'Cement', 'Aggregate', 'Copper Cable'],
 })
@@ -145,7 +160,7 @@ const seed = () => ({
 // Build a fully-shaped RFQ line with all item-detail fields (spec 1.1).
 function line(lineId, p = {}) {
   return {
-    lineId, itemId: p.itemId || null,
+    lineId, itemId: p.itemId || null, sku: p.sku || '',
     name: p.name || '', spec: p.spec || '', description: p.description || '',
     qty: p.qty ?? 1, uom: p.uom || 'PCS',
     brand: p.brand || '', model: p.model || '', partNo: p.partNo || '',
@@ -155,11 +170,38 @@ function line(lineId, p = {}) {
   }
 }
 
-function mkItem({ name, baseName, spec = '', uom = 'PCS', category = 'General', brand = '', model = '', partNo = '', description = '', extraTags = [] }) {
+function mkItem({ id, name, baseName, sku = '', spec = '', uom = 'PCS', category = 'General', brand = '', model = '', partNo = '', description = '', extraTags = [], priceHistory = [], lastBoughtPrice = null, lastBoughtAt = null }) {
   const bn = (baseName && baseName.trim()) || deriveBaseName(name)
   let tags = [bn]
   for (const t of extraTags) tags = addTagUnique(tags, t)
-  return { id: 'ITM-' + nanoid(6), name, baseName: bn, spec, uom, category, brand, model, partNo, description, tags, createdAt: now }
+  return { id: id || ('ITM-' + nanoid(12)), name, sku, baseName: bn, spec, uom, category, brand, model, partNo, description, tags, priceHistory, lastBoughtPrice, lastBoughtAt, createdAt: now }
+}
+
+// Append purchase records (from awarded RFQs) onto their linked catalogue items,
+// updating each item's last-bought price. One flush for the whole batch.
+export function recordItemPurchases(records = []) {
+  ensure()
+  let touched = 0
+  for (const r of records) {
+    if (!r.itemId) continue
+    const item = db.items.find((i) => i.id === r.itemId)
+    if (!item) continue
+    const entry = { price: Number(r.price) || 0, qty: r.qty ?? null, supplierId: r.supplierId || null, supplierName: r.supplierName || '', rfqId: r.rfqId || null, rfqTitle: r.rfqTitle || '', at: r.at || Date.now() }
+    item.priceHistory = [...(item.priceHistory || []), entry]
+    item.lastBoughtPrice = entry.price
+    item.lastBoughtAt = entry.at
+    touched++
+  }
+  if (touched) flush()
+  return touched
+}
+
+// Generate an item UID guaranteed not to collide with an existing-id Set.
+function freshItemId(taken) {
+  let id
+  do { id = 'ITM-' + nanoid(12) } while (taken.has(id))
+  taken.add(id)
+  return id
 }
 
 let db = null
@@ -260,8 +302,10 @@ export function upsertItem(payload) {
   const existing = db.items.find((i) => idOf(i) === key)
   if (existing) return { item: existing, created: false }
   const item = mkItem({
+    id: freshItemId(new Set(db.items.map((i) => i.id))),
     name,
     baseName: payload.baseName,
+    sku: payload.sku || '',
     spec,
     uom: payload.uom || 'PCS',
     category: payload.category || 'General',
@@ -275,6 +319,37 @@ export function upsertItem(payload) {
   registerTags(item.tags)
   flush()
   return { item, created: true }
+}
+
+// Efficient bulk item insert for large catalogue uploads. Builds every item in
+// memory, dedups names via a Set (O(1) lookups), and flushes to disk ONCE —
+// avoiding the per-row scan + per-row file write that makes upsertItem O(n²).
+export function bulkAddItems(payloads = []) {
+  ensure()
+  const seen = new Set(db.items.map((i) => normalize(i.name)))
+  const idSeen = new Set(db.items.map((i) => i.id))
+  const tagSeen = new Set(db.tags.map((t) => normalize(t)))
+  let added = 0, skipped = 0
+  for (const p of payloads) {
+    const base = String(p.name || '').trim()
+    if (!base) { skipped++; continue }
+    // Keep names unique: append SKU on a clash, then a counter if still clashing.
+    let name = base
+    if (seen.has(normalize(name)) && p.sku) name = `${base} (${p.sku})`
+    let n = 2
+    while (seen.has(normalize(name))) { name = `${base}${p.sku ? ` (${p.sku})` : ''} #${n}`; n++ }
+    seen.add(normalize(name))
+
+    const item = mkItem({ id: freshItemId(idSeen), name, sku: p.sku || '', category: p.category || 'General', uom: p.uom || 'PCS' })
+    db.items.push(item)
+    for (const t of item.tags) {
+      const nt = normalize(t)
+      if (!tagSeen.has(nt)) { tagSeen.add(nt); db.tags.push(t) }
+    }
+    added++
+  }
+  flush()
+  return { added, skipped, total: payloads.length }
 }
 
 export const newId = (prefix) => prefix + '-' + nanoid(8)
