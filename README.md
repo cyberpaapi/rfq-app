@@ -85,6 +85,26 @@ protects entry to the workspace but does not bind a user to a role. Before
 external multi-user use, replace the preview headers with authenticated server
 sessions and administrator-managed user-to-role/supplier assignments.
 
+### Item catalogue
+
+The catalogue uses all nine **Fully_edited** worksheet columns, in source order:
+Item Name, AI Name, Description, SKU, Category, Subcategory, Usage unit,
+Part Number (MPN), Unit Name. Names and blank values are preserved. Imports choose
+Fully_edited when present, ignoring Summary and Remove Items; normal UI uploads
+append items. The catalogue has 100-row pages, full-dataset search across all
+nine fields, and categories/subcategories derived from the saved data. RFQ item
+search also queries the complete catalogue rather than a 500-item browser cache.
+
+For an explicitly authorized full replacement, stop the local API and run
+`node scripts/replace-catalogue.mjs --source workbook.xlsx --backup-dir /private/backups`.
+This validates and previews counts without changing items. Add `--apply` to back
+up the current database and replace the catalogue. Add `--cloud` with DATABASE_URL
+to target Neon; cloud writes use the existing version check. Keep source files
+and backups outside Git. Unique matching SKUs/names retain IDs and purchase
+history; old RFQ/quote snapshots are untouched. Warm server instances check the
+database version before reusing a cloned snapshot, avoiding repeated catalogue
+downloads for ordinary reads while retaining request isolation.
+
 ### Supplier evaluation and regression checks
 
 Run `npm test` for evaluation and API regression checks. API tests use a temporary

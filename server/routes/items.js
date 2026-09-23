@@ -1,42 +1,36 @@
 import { Router } from 'express'
-import * as XLSX from 'xlsx'
 import * as store from '../store.js'
 import { deriveBaseName, addTagUnique, normalize } from '../lib/tags.js'
 import { upload } from '../lib/upload.js'
+import { readCatalogue } from '../lib/catalogue.js'
+import { catalogueMatches } from '../../shared/catalogue.js'
 
 const router = Router()
 
-// Read a cell by any of several possible header names (case-insensitive).
-const pick = (row, ...names) => {
-  const keys = Object.keys(row)
-  for (const n of names) {
-    const k = keys.find((key) => normalize(key) === normalize(n))
-    if (k != null && row[k] != null) return String(row[k]).trim()
-  }
-  return ''
-}
-
 // GET /api/items?q=&tag=&category=
 router.get('/', (req, res) => {
-  const { q, tag, category } = req.query
+  const { q, tag, category, subcategory } = req.query
   let list = store.all('items')
-  if (q) {
-    const needle = normalize(q)
-    list = list.filter(
-      (i) =>
-        normalize(i.name).includes(needle) ||
-        normalize(i.sku || '').includes(needle) ||
-        normalize(i.baseName).includes(needle) ||
-        i.tags.some((t) => normalize(t).includes(needle)),
-    )
-  }
+  if (q) list = list.filter((i) => catalogueMatches(i, q))
   if (tag) list = list.filter((i) => i.tags.some((t) => normalize(t) === normalize(tag)))
-  if (category && category !== 'All') list = list.filter((i) => i.category === category)
+  if (category && category !== 'All') list = list.filter((i) => category === '__blank__' ? !i.category : i.category === category)
+  if (subcategory) list = list.filter((i) => i.subcategory === subcategory)
+  if (req.query.paged === 'true') {
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100))
+    const offset = Math.max(0, parseInt(req.query.offset) || 0)
+    return res.json({ items: list.slice(offset, offset + limit), total: list.length, offset, limit })
+  }
   // Cap the payload so a huge catalogue can't freeze the UI; search/filter still
   // runs over the full set above, so anything is findable by narrowing.
   const LIMIT = 500
   if (list.length > LIMIT) list = list.slice(-LIMIT).reverse() // most-recent first
   res.json(list)
+})
+
+router.get('/meta', (_req, res) => {
+  const items = store.all('items')
+  const distinct = (key) => [...new Set(items.map((i) => i[key] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  res.json({ total: items.length, categories: distinct('category'), subcategories: distinct('subcategory'), units: distinct('uom'), hasBlankCategory: items.some((i) => !i.category) })
 })
 
 // Manual create — dedup-aware (reuses an existing item with the same name).
@@ -46,29 +40,20 @@ router.post('/', (req, res) => {
   const { item, created } = store.upsertItem({
     name: b.name, sku: b.sku, spec: b.spec, uom: b.uom, category: b.category,
     brand: b.brand, model: b.model, partNo: b.partNo, description: b.description, extraTags: b.tags || [],
+    aiName: b.aiName, subcategory: b.subcategory, unitName: b.unitName,
   })
   res.status(created ? 201 : 200).json({ item, created })
 })
 
 // POST /api/items/upload  (multipart: file)
-// Headers expected: Item Name | SKU | Category Name | Usage unit
+// Supports all nine Fully_edited headers, with legacy aliases for older files.
 //  - Item Name is mandatory (rows without it are ignored)
 //  - names are kept unique: a clash gets the SKU appended (then a counter)
-//  - every item gets an auto UID; empty fields stay empty
+//  - every item gets an auto UID; all source fields are retained
 router.post('/upload', upload.single('file'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'file is required' })
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' })
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows = ws ? XLSX.utils.sheet_to_json(ws, { defval: '' }) : []
-
-    // Map headers → payloads, then insert in ONE efficient batch.
-    const payloads = rows.map((row) => ({
-      name: pick(row, 'Item Name', 'Item', 'Name'),
-      sku: pick(row, 'SKU', 'Sku', 'Sku Code', 'Item Code'),
-      category: pick(row, 'Category Name', 'Category') || 'General',
-      uom: pick(row, 'Usage unit', 'Usage Unit', 'UOM', 'Unit') || 'PCS',
-    }))
+    const { items: payloads } = readCatalogue(req.file.buffer)
     const result = store.bulkAddItems(payloads) // { added, skipped, total }
     res.json(result)
   } catch (e) {

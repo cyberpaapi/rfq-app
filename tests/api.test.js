@@ -24,6 +24,23 @@ test('procurement API regression checks on isolated data', async (t) => {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   let rfq
+  await t.test('catalogue fields, full-catalogue search, pagination and metadata', async () => {
+    const fields = { name: 'Catalogue source fixture', aiName: 'AI-UNIQUE-LOOKUP', description: 'Full description', sku: '00042', category: 'Custom category', subcategory: 'Custom subcategory', uom: '', partNo: 'MPN-UNIQUE-LOOKUP', unitName: 'Source unit' }
+    const added = await request('/items', fields)
+    assert.equal(added.status, 201)
+    for (const [key, value] of Object.entries(fields)) assert.equal(added.data.item[key], value)
+    const search = await request('/items?paged=true&q=AI-UNIQUE-LOOKUP', null, 'GET')
+    assert.equal(search.data.total, 1)
+    assert.equal(search.data.items[0].sku, '00042')
+    assert.equal((await request('/items?paged=true&q=MPN-UNIQUE-LOOKUP&offset=1', null, 'GET')).data.items.length, 0)
+    const meta = await request('/items/meta', null, 'GET')
+    assert.ok(meta.data.categories.includes('Custom category'))
+    assert.ok(meta.data.subcategories.includes('Custom subcategory'))
+    await request(`/items/${added.data.item.id}`, { aiName: 'Edited AI', subcategory: 'Edited subcategory', unitName: '' }, 'PUT')
+    const edited = await request('/items?paged=true&q=Edited%20AI', null, 'GET')
+    assert.equal(edited.data.items[0].unitName, '')
+    assert.equal(edited.data.items[0].subcategory, 'Edited subcategory')
+  })
   await t.test('shared roles enforce restrictions and protect Administrator', async () => {
     const asRole = async (path, role, body, method = body ? 'POST' : 'GET', supplierId = '') => {
       const response = await fetch(`http://localhost:${port}/api${path}`, { method, headers: { 'Content-Type': 'application/json', 'x-role-key': role, 'x-supplier-id': supplierId }, ...(body ? { body: JSON.stringify(body) } : {}) })

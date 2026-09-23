@@ -2,10 +2,10 @@ import { neon } from '@neondatabase/serverless'
 
 // Keep the prototype's document store durable on serverless instances. Each
 // request gets its own snapshot; compare-and-swap prevents lost updates.
-export function createPostgresDatabase(seed) {
-  let sql, initialized
+export function createPostgresDatabase(seed, connect = neon) {
+  let sql, initialized, cached
   const init = async () => {
-    sql ||= neon(process.env.DATABASE_URL)
+    sql ||= connect(process.env.DATABASE_URL)
     initialized ||= sql`CREATE TABLE IF NOT EXISTS opro_state (
       id text PRIMARY KEY, data jsonb NOT NULL, version bigint NOT NULL DEFAULT 0,
       updated_at timestamptz NOT NULL DEFAULT now()
@@ -15,18 +15,25 @@ export function createPostgresDatabase(seed) {
   return {
     async load() {
       await init()
-      let rows = await sql`SELECT data, version FROM opro_state WHERE id = 'main'`
+      // A 23k-item catalogue must not be downloaded again for each UI/log event.
+      // Check the authoritative version, then clone the matching warm snapshot.
+      let rows = await sql`SELECT version FROM opro_state WHERE id = 'main'`
       if (!rows.length) {
         await sql`INSERT INTO opro_state (id, data) VALUES ('main', ${JSON.stringify(seed())}::jsonb) ON CONFLICT (id) DO NOTHING`
         rows = await sql`SELECT data, version FROM opro_state WHERE id = 'main'`
       }
-      return { data: rows[0].data, version: rows[0].version, dirty: false }
+      if (!cached || String(cached.version) !== String(rows[0].version)) {
+        if (!rows[0].data) rows = await sql`SELECT data, version FROM opro_state WHERE id = 'main'`
+        cached = { data: rows[0].data, version: rows[0].version }
+      }
+      return { data: structuredClone(cached.data), version: cached.version, dirty: false }
     },
     async commit(state) {
       const rows = await sql`UPDATE opro_state SET data = ${JSON.stringify(state.data)}::jsonb,
         version = version + 1, updated_at = now()
         WHERE id = 'main' AND version = ${state.version} RETURNING version`
       if (!rows.length) throw Object.assign(new Error('Another request changed the data. Reload and retry.'), { status: 409 })
+      cached = { data: structuredClone(state.data), version: rows[0].version }
     },
   }
 }

@@ -10,6 +10,7 @@ import { Card, Avatar, Empty, Spinner } from '../components/ui'
 import ItemsTable from '../components/ItemsTable'
 import { useAuth } from '../context/AuthContext'
 import { Lock } from 'lucide-react'
+import { catalogueMatches } from '../../shared/catalogue'
 
 const steps = ['Details', 'Items', 'Suppliers', 'Review']
 
@@ -19,9 +20,11 @@ export default function CreateRfq() {
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
     title: '', description: '', currency: 'USD', deadline: '', validity: '',
-    deliveryLocation: '', paymentTerms: '30 days net', category: 'Electronics', budget: '',
+    deliveryLocation: '', paymentTerms: '30 days net', category: '', budget: '',
   })
   const [catalogue, setCatalogue] = useState([])
+  const [catalogueCategories, setCatalogueCategories] = useState([])
+  const [catalogueError, setCatalogueError] = useState('')
   const [imported, setImported] = useState([]) // items parsed from an Excel/doc upload
   const [lines, setLines] = useState([])        // selected RFQ lines
   const [suppliers, setSuppliers] = useState([])
@@ -36,12 +39,20 @@ export default function CreateRfq() {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   useEffect(() => {
-    Items.list().then((items) => {
-      setCatalogue(items)
-      setOpenGroups([...new Set(items.map((i) => i.category || 'General'))])
-    })
+    Items.meta().then((meta) => setCatalogueCategories(meta.categories)).catch((e) => setCatalogueError(e.message))
     Suppliers.list().then(setSuppliers)
   }, [])
+
+  useEffect(() => {
+    let active = true
+    setCatalogue([])
+    const timer = setTimeout(() => {
+      Items.page({ q: itemQuery, limit: 100 }).then((value) => {
+        if (active) { setCatalogue(value.items); setCatalogueError('') }
+      }).catch((e) => { if (active) setCatalogueError(e.message) })
+    }, 250)
+    return () => { active = false; clearTimeout(timer) }
+  }, [itemQuery])
 
   // Group catalogue + imported items into a pickable tree.
   const groups = useMemo(() => {
@@ -50,8 +61,7 @@ export default function CreateRfq() {
       ...catalogue.map((i) => ({ ...i, _group: i.category || 'General' })),
     ].filter((i) => {
       if (!itemQuery) return true
-      const q = itemQuery.toLowerCase()
-      return (i.name || '').toLowerCase().includes(q) || (i.baseName || '').toLowerCase().includes(q) || (i.tags || []).some((t) => t.toLowerCase().includes(q))
+      return catalogueMatches(i, itemQuery)
     })
     const map = {}
     for (const it of all) { (map[it._group] ??= []).push(it) }
@@ -161,7 +171,7 @@ export default function CreateRfq() {
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2"><label className="label">RFQ Title *</label><input className="input" value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Landscape Lighting — Phase 2" /></div>
             <div className="sm:col-span-2"><label className="label">Description</label><textarea className="input min-h-24" value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Scope, context and special instructions…" /></div>
-            <div><label className="label">Category</label><select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select></div>
+            <div><label className="label">Category</label><select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}><option value="">Select category</option>{catalogueCategories.map((c) => <option key={c}>{c}</option>)}</select></div>
             <div><label className="label">Currency</label><select className="input" value={form.currency} onChange={(e) => set('currency', e.target.value)}><option>USD</option><option>INR</option><option>EUR</option></select></div>
             <div><label className="label">Submission Deadline <span className="font-normal lowercase text-ink-400">(optional)</span></label><input type="date" className="input" value={form.deadline} onChange={(e) => set('deadline', e.target.value)} /></div>
             <div><label className="label">Validity Period</label><input type="date" className="input" value={form.validity} onChange={(e) => set('validity', e.target.value)} /></div>
@@ -198,6 +208,7 @@ export default function CreateRfq() {
               <span className="chip bg-brand-50 text-brand-700">{lines.length} items</span>
             </div>
 
+            {catalogueError && <p role="alert" className="text-sm text-rose-700">{catalogueError}</p>}
             {itemQuery && (
               <div className="flex flex-wrap gap-1.5">
                 {groups.flatMap(([, items]) => items).slice(0, 14).map((it) => {

@@ -175,11 +175,11 @@ function line(lineId, p = {}) {
   }
 }
 
-function mkItem({ id, name, baseName, sku = '', spec = '', uom = 'PCS', category = 'General', brand = '', model = '', partNo = '', description = '', extraTags = [], priceHistory = [], lastBoughtPrice = null, lastBoughtAt = null }) {
+function mkItem({ id, name, aiName = '', subcategory = '', unitName = '', baseName, sku = '', spec = '', uom = 'PCS', category = 'General', brand = '', model = '', partNo = '', description = '', extraTags = [], priceHistory = [], lastBoughtPrice = null, lastBoughtAt = null }) {
   const bn = (baseName && baseName.trim()) || deriveBaseName(name)
   let tags = [bn]
   for (const t of extraTags) tags = addTagUnique(tags, t)
-  return { id: id || ('ITM-' + nanoid(12)), name, sku, baseName: bn, spec, uom, category, brand, model, partNo, description, tags, priceHistory, lastBoughtPrice, lastBoughtAt, createdAt: now }
+  return { id: id || ('ITM-' + nanoid(12)), name, aiName, subcategory, unitName, sku, baseName: bn, spec, uom, category, brand, model, partNo, description, tags, priceHistory, lastBoughtPrice, lastBoughtAt, createdAt: now }
 }
 
 // Append purchase records (from awarded RFQs) onto their linked catalogue items,
@@ -332,8 +332,9 @@ export function upsertItem(payload) {
     baseName: payload.baseName,
     sku: payload.sku || '',
     spec,
-    uom: payload.uom || 'PCS',
-    category: payload.category || 'General',
+    uom: payload.uom ?? 'PCS',
+    category: payload.category ?? 'General',
+    aiName: payload.aiName || '', subcategory: payload.subcategory || '', unitName: payload.unitName || '',
     brand: payload.brand || '',
     model: payload.model || '',
     partNo: payload.partNo || '',
@@ -366,7 +367,7 @@ export function bulkAddItems(payloads = []) {
     while (seen.has(normalize(name))) { name = `${base}${p.sku ? ` (${p.sku})` : ''} #${n}`; n++ }
     seen.add(normalize(name))
 
-    const item = mkItem({ id: freshItemId(idSeen), name, sku: p.sku || '', category: p.category || 'General', uom: p.uom || 'PCS' })
+    const item = mkItem({ ...p, id: freshItemId(idSeen), name, category: p.category ?? '', uom: p.uom ?? '' })
     currentDb().items.push(item)
     for (const t of item.tags) {
       const nt = normalize(t)

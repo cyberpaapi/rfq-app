@@ -77,6 +77,8 @@ export const weightedScore = (s, w = { price: 30, quality: 40, delivery: 30 }) =
 }
 export const Items = {
   list: (params) => api.get('/items', params),
+  page: (params) => api.get('/items', { ...params, paged: true }),
+  meta: () => api.get('/items/meta'),
   create: (b) => api.post('/items', b),
   update: (id, b) => api.put(`/items/${id}`, b),
   remove: (id) => api.del(`/items/${id}`),
