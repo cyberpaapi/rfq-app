@@ -87,6 +87,8 @@ export function endSession(req, res) {
 }
 
 export function loginThrottle(req, username) {
+  // Older databases had role-picker records but no login-attempt collection.
+  store.getRoles()
   const id = digest(String(username || '').trim().toLowerCase())
   const existing = store.all('loginAttempts').find((row) => row.id === id)
   return { id, existing, locked: !!existing?.lockedUntil && existing.lockedUntil > Date.now() }
