@@ -28,7 +28,7 @@ router.put('/:id', (req, res) => {
   if (req.accessRole?.id !== 'admin') return res.status(403).json({ error: 'Only Administrator can edit roles.' })
   const role = store.getRoles().find((item) => item.id === req.params.id)
   if (!role) return res.status(404).json({ error: 'Role not found.' })
-  if (role.id === 'admin') return res.status(403).json({ error: 'Administrator is protected and always has full access.' })
+  if (role.builtIn) return res.status(403).json({ error: 'Built-in roles cannot be edited.' })
   if (req.body.version !== role.version) return res.status(409).json({ error: 'This role changed elsewhere. Reload before saving.' })
   try {
     const patch = validateRole(req.body || {}, store.getRoles(), role)
@@ -43,9 +43,9 @@ router.put('/:id', (req, res) => {
 })
 
 router.delete('/:id', (req, res) => {
-  if (req.params.id === 'admin') return res.status(403).json({ error: 'Administrator is protected.' })
   const role = store.getRoles().find((item) => item.id === req.params.id)
   if (!role) return res.status(404).json({ error: 'Role not found.' })
+  if (role.builtIn) return res.status(403).json({ error: 'Built-in roles cannot be deleted.' })
   if (store.getUsers().some((user) => user.roleId === role.id)) return res.status(409).json({ error: 'Move or delete users assigned to this role first.' })
   store.remove('roles', role.id)
   store.logAudit({ user: 'Administrator', action: 'Deleted role', field: role.id, old: auditValue(role) })

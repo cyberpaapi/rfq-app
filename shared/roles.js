@@ -8,6 +8,8 @@ export const PERMISSIONS = {
   'approve.finance': { group: 'Approval', label: 'Approve as Finance Head' },
   'award.decide': { group: 'Approval', label: 'Award / reject quotations' },
   'supplier.manage': { group: 'Sourcing', label: 'Manage suppliers' },
+  'supplier.create': { group: 'Sourcing', label: 'Add suppliers and create supplier logins' },
+  'supplier.response.edit': { group: 'Sourcing', label: 'Add/edit supplier responses on their behalf' },
   'reports.view': { group: 'Insights', label: 'View reports and dashboard' },
   'audit.view': { group: 'Insights', label: 'View audit and debug logs' },
   'data.export': { group: 'Insights', label: 'Export data and download quote originals' },
@@ -16,8 +18,8 @@ export const PERMISSIONS = {
   'users.manage': { group: 'Administration', label: 'Manage accounts and roles (Administrator only)' },
 }
 export const PERMISSION_KEYS = Object.keys(PERMISSIONS)
-export const WORKSPACE_PERMISSIONS = ['rfq.create', 'rfq.publish', 'rfq.evaluate', 'approve.hod', 'approve.finance', 'award.decide', 'supplier.manage', 'reports.view', 'data.export']
-export const WRITE_PERMISSIONS = ['rfq.create', 'rfq.publish', 'ai.use', 'approve.hod', 'approve.finance', 'award.decide', 'supplier.manage', 'quote.submit', 'users.manage']
+export const WORKSPACE_PERMISSIONS = ['rfq.create', 'rfq.publish', 'rfq.evaluate', 'approve.hod', 'approve.finance', 'award.decide', 'supplier.manage', 'supplier.create', 'supplier.response.edit', 'reports.view', 'data.export']
+export const WRITE_PERMISSIONS = ['rfq.create', 'rfq.publish', 'ai.use', 'approve.hod', 'approve.finance', 'award.decide', 'supplier.manage', 'supplier.create', 'supplier.response.edit', 'quote.submit', 'users.manage']
 export const ROLES = {
   admin: { label: 'Administrator', desc: 'Full access and account administration.', color: 'rose', permissions: '*' },
 }

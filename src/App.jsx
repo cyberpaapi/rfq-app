@@ -39,6 +39,7 @@ function Guard({ permission, children }) {
 function Home() {
   const { can, current } = useAuth()
   if (can('reports.view')) return <Dashboard />
+  if (can('portal.access')) return <Navigate to="/supplier" replace />
   return <Card className="p-8"><h1 className="text-2xl font-bold">{current.label}</h1><p className="mt-2 text-sm text-ink-500">Choose an available page from the sidebar. Ask Administrator for any additional access.</p></Card>
 }
 
@@ -50,12 +51,13 @@ function AppShell() {
           <Route path="/rfqs" element={<Guard permission="workspace.view"><RfqList /></Guard>} />
           <Route path="/rfqs/new" element={<Guard permission="rfq.create"><CreateRfq /></Guard>} />
           <Route path="/rfqs/:id" element={<Guard permission="workspace.view"><RfqDetail /></Guard>} />
-          <Route path="/suppliers" element={<Guard permission="supplier.manage"><SuppliersManage /></Guard>} />
+          <Route path="/suppliers" element={<Guard permission={['supplier.manage', 'supplier.create']}><SuppliersManage /></Guard>} />
           <Route path="/items" element={<Guard permission="rfq.create"><ItemsPage /></Guard>} />
           <Route path="/import" element={<Guard permission="ai.use"><Guard permission="rfq.create"><Import /></Guard></Guard>} />
           <Route path="/assign" element={<Guard permission="rfq.create"><Assign /></Guard>} />
           <Route path="/assign/:id" element={<Guard permission="rfq.create"><Assign /></Guard>} />
           <Route path="/portal" element={<Guard permission="portal.access"><Portal /></Guard>} />
+          <Route path="/supplier" element={<Guard permission="portal.access"><Portal /></Guard>} />
           <Route path="/compare" element={<Guard permission="rfq.evaluate"><Compare /></Guard>} />
           <Route path="/award" element={<Guard permission={['rfq.evaluate', 'award.decide', 'approve.hod', 'approve.finance']}><Award /></Guard>} />
           <Route path="/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />

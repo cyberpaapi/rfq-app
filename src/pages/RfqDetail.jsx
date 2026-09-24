@@ -8,6 +8,7 @@ import { Rfqs } from '../api/client'
 import { WORKFLOW, STATUS, fmt } from '../data/mock'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatusBadge, SectionTitle, Avatar, Empty, Spinner } from '../components/ui'
+import QuoteEditor from '../components/QuoteEditor'
 
 function WorkflowTracker({ status }) {
   const idx = WORKFLOW.indexOf(status)
@@ -53,6 +54,7 @@ export default function RfqDetail() {
   const [rfq, setRfq] = useState(undefined) // undefined = loading, null = not found
   const [busy, setBusy] = useState(false)
   const [rating, setRating] = useState(null) // delivery being rated
+  const [responseSupplier, setResponseSupplier] = useState('')
 
   const load = useCallback(() => {
     Rfqs.get(id).then(setRfq).catch(() => setRfq(null))
@@ -171,6 +173,12 @@ export default function RfqDetail() {
               </div>
             )}
           </Card>
+
+          {can('supplier.response.edit') && !!rfq.assignments?.length && <Card className="p-5">
+            <SectionTitle>Add/edit supplier response</SectionTitle>
+            <label className="mb-4 block max-w-sm"><span className="label">Supplier</span><select className="input" value={responseSupplier} onChange={(event) => setResponseSupplier(event.target.value)}><option value="">Select invited supplier</option>{rfq.assignments.map((a) => <option key={a.supplierId} value={a.supplierId}>{a.supplierName}</option>)}</select></label>
+            <QuoteEditor rfq={rfq} supplierId={responseSupplier} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={load} />
+          </Card>}
 
           {rfq.deliveries && rfq.deliveries.length > 0 && (
             <Card className="p-5">

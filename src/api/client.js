@@ -72,6 +72,7 @@ export const Suppliers = {
   remove: (id) => api.del(`/suppliers/${id}`),
   rate: (id, b) => api.post(`/suppliers/${id}/rate`, b),
   upload: (file) => api.upload('/suppliers/upload', file),
+  createCredentials: (id) => api.post(`/suppliers/${id}/credentials`),
 }
 
 // Weighted supplier score (0-100) from performance scores + weights.

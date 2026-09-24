@@ -18,16 +18,24 @@ export function requiredPermissions(method, path, body = {}) {
   if (path.startsWith('/notifications')) return ['workspace.view']
   if (path.startsWith('/ingest')) return ['rfq.create', 'ai.use']
   if (path.startsWith('/items') || path === '/tags') return method === 'GET' ? ['workspace.view'] : ['rfq.create']
-  if (path.startsWith('/suppliers')) return method === 'GET' ? ['workspace.view|portal.access'] : ['supplier.manage']
+  if (path.startsWith('/suppliers')) {
+    if (method === 'GET') return ['workspace.view|portal.access']
+    if (path.endsWith('/credentials')) return ['supplier.create']
+    if (path === '/suppliers' && method === 'POST') return ['supplier.create|supplier.manage']
+    if (path === '/suppliers/upload') return ['supplier.create|supplier.manage']
+    return ['supplier.manage']
+  }
   if (path.startsWith('/rfqs')) {
     if (method === 'GET') return path.includes('/quote-file/') ? ['data.export', 'workspace.view'] : ['workspace.view|portal.access']
     if (/\/(quote-upload|respond)$/.test(path)) return ['quote.submit', 'ai.use']
-    if (/\/(quote|clarifications)$/.test(path)) return ['quote.submit|rfq.create']
+    if (path.endsWith('/quote')) return ['quote.submit|supplier.response.edit']
+    if (path.endsWith('/clarifications')) return ['quote.submit|rfq.create']
     if (path.endsWith('/approve')) return [`approve.${body.role}`]
     if (path.endsWith('/award')) return ['award.decide']
     if (path.endsWith('/status')) return ['rfq.publish']
     if (/\/(recommend|score-quality)$/.test(path)) return ['rfq.evaluate', 'ai.use']
-    if (path.includes('/quotes/') || path.endsWith('/forward-evaluation')) return ['rfq.evaluate']
+    if (path.includes('/quotes/')) return ['rfq.evaluate|supplier.response.edit']
+    if (path.endsWith('/forward-evaluation')) return ['rfq.evaluate']
     return ['rfq.create']
   }
   return ['users.manage']

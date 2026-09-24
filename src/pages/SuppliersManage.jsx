@@ -1,14 +1,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Plus, Search, Star, BadgeCheck, MapPin, Mail, Phone, Pencil, Trash2, Tag as TagIcon, Filter, Upload, Loader2,
+  Plus, Search, Star, BadgeCheck, MapPin, Mail, Phone, Pencil, Trash2, Tag as TagIcon, Filter, Upload, Loader2, KeyRound, Copy,
 } from 'lucide-react'
 import { Suppliers, Tags } from '../api/client'
 import { Card, Avatar, Spinner, Tag, TagInput, Drawer, Empty, ClampList } from '../components/ui'
+import { useAuth } from '../context/AuthContext'
+import { useSearchParams } from 'react-router-dom'
 
 const CATEGORIES = ['Electronics', 'Raw Materials', 'Services', 'General']
 const empty = { name: '', category: 'General', email: '', phone: '', location: '', qualified: true, rating: 4, notes: '', tags: [] }
 
 export default function SuppliersManage() {
+  const { can } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [list, setList] = useState(null)
   const [allTags, setAllTags] = useState([])
   const [q, setQ] = useState('')
@@ -17,6 +21,9 @@ export default function SuppliersManage() {
   const [drawer, setDrawer] = useState(null) // null | 'new' | supplier object
   const [uploading, setUploading] = useState(false)
   const [toast, setToast] = useState(null)
+  const [credentials, setCredentials] = useState(null)
+  const [credentialBusy, setCredentialBusy] = useState('')
+  useEffect(() => { if (searchParams.get('new') === '1' && (can('supplier.create') || can('supplier.manage'))) { setDrawer('new'); setSearchParams({}, { replace: true }) } }, [searchParams, setSearchParams, can])
 
   const load = useCallback(async () => {
     const data = await Suppliers.list({ q, category: cat === 'All' ? '' : cat, tag: activeTag || '' })
@@ -34,6 +41,12 @@ export default function SuppliersManage() {
     load()
   }
   const del = async (id) => { if (confirm('Delete this supplier?')) { await Suppliers.remove(id); load() } }
+  const makeCredentials = async (supplier) => {
+    if (supplier.loginUsername && !confirm(`Reset the password for ${supplier.loginUsername}? Their current session will end.`)) return
+    setCredentialBusy(supplier.id)
+    try { setCredentials({ supplier: supplier.name, ...(await Suppliers.createCredentials(supplier.id)) }); await load() }
+    catch (error) { flash(error.message) } finally { setCredentialBusy('') }
+  }
 
   const onUpload = async (e) => {
     const f = e.target.files[0]; e.target.value = ''
@@ -54,17 +67,18 @@ export default function SuppliersManage() {
           <p className="mt-1 text-sm text-ink-500">List, add, edit, categorise and tag your vendors. Tags are searchable.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <label className="btn-outline cursor-pointer" title="Upload .xlsx / .csv with headers: Name, Category, Email, Phone, Location, Other Notes">
+          {(can('supplier.create') || can('supplier.manage')) && <label className="btn-outline cursor-pointer" title="Upload .xlsx / .csv with headers: Name, Category, Email, Phone, Location, Other Notes">
             {uploading ? <><Loader2 size={16} className="animate-spin" /> Uploading…</> : <><Upload size={16} /> Upload Xls</>}
             <input type="file" hidden accept=".xlsx,.xls,.csv" onChange={onUpload} />
-          </label>
-          <button className="btn-primary" onClick={() => setDrawer('new')}><Plus size={16} /> Add Supplier</button>
+          </label>}
+          {(can('supplier.create') || can('supplier.manage')) && <button className="btn-primary" onClick={() => setDrawer('new')}><Plus size={16} /> Add Supplier</button>}
         </div>
       </div>
 
       <p className="-mt-2 text-xs text-ink-400">Bulk upload format — headers: <span className="font-semibold text-ink-600">Name</span>, <span className="font-semibold text-ink-600">Category</span>, <span className="font-semibold text-ink-600">Email</span>, <span className="font-semibold text-ink-600">Phone</span>, <span className="font-semibold text-ink-600">Location</span>, <span className="font-semibold text-ink-600">Other Notes</span>. Name is required.</p>
 
       {toast && <div className="rounded-xl bg-ink-900 px-4 py-2.5 text-sm font-medium text-white">{toast}</div>}
+      {credentials && <Card className="border-emerald-200 bg-emerald-50 p-4"><p className="font-bold text-emerald-900">Supplier credentials ready — {credentials.supplier}</p><p className="mt-2 break-all font-mono text-sm">Username: {credentials.username}</p><p className="break-all font-mono text-sm">Password: {credentials.password}</p><p className="mt-2 text-xs text-emerald-800">Share these privately. Sign in at /supplier.</p><div className="mt-3 flex gap-2"><button className="btn-outline" onClick={() => navigator.clipboard.writeText(`Username: ${credentials.username}\nPassword: ${credentials.password}`)}><Copy size={15} /> Copy login</button><button className="btn-ghost" onClick={() => setCredentials(null)}>Dismiss</button></div></Card>}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
         {/* Main list (left) */}
@@ -109,11 +123,13 @@ export default function SuppliersManage() {
                       </div>
                       <p className="text-xs text-ink-400">{s.category}</p>
                     </div>
-                    <div className="flex gap-1 opacity-0 transition group-hover:opacity-100">
-                      <button onClick={() => setDrawer(s)} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"><Pencil size={15} /></button>
-                      <button onClick={() => del(s.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
+                    <div className="flex gap-1">
+                      {can('supplier.manage') && <button aria-label={`Edit ${s.name}`} onClick={() => setDrawer(s)} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"><Pencil size={15} /></button>}
+                      {can('supplier.manage') && <button aria-label={`Delete ${s.name}`} onClick={() => del(s.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>}
                     </div>
                   </div>
+                  {can('supplier.create') && <button className="btn-outline mt-3 text-xs" disabled={credentialBusy === s.id} onClick={() => makeCredentials(s)}><KeyRound size={14} /> {credentialBusy === s.id ? 'Creating…' : s.loginUsername ? 'Reset credentials' : 'Create credentials'}</button>}
+                  {s.loginUsername && <p className="mt-1 text-xs text-ink-500">Login: {s.loginUsername}</p>}
                   <div className="mt-3 space-y-1 text-sm text-ink-500">
                     {s.email && <p className="flex items-center gap-1.5"><Mail size={13} />{s.email}</p>}
                     {s.phone && <p className="flex items-center gap-1.5"><Phone size={13} />{s.phone}</p>}

@@ -5,8 +5,12 @@ import { newId } from '../store.js'
 import { addTagUnique, normalize } from '../lib/tags.js'
 import { upload } from '../lib/upload.js'
 import { roleCan } from '../../shared/roles.js'
+import { randomBytes } from 'node:crypto'
+import { hashPassword } from '../lib/auth.js'
+import { encryptAccountPassword } from '../lib/account-passwords.js'
 
 const router = Router()
+const SUPPLIER_ROLE_ID = 'supplier-portal'
 
 const pick = (row, ...names) => {
   const keys = Object.keys(row)
@@ -52,7 +56,8 @@ router.get('/', (req, res) => {
   if (tag) list = list.filter((s) => s.tags.some((t) => normalize(t) === normalize(tag)))
   if (category && category !== 'All') list = list.filter((s) => s.category === category)
   if (!roleCan(req.accessRole, 'workspace.view')) return res.json(list.filter((s) => s.id === req.supplierId).map(({ id, name, category }) => ({ id, name, category })))
-  res.json(list)
+  const canSeeLogins = roleCan(req.accessRole, 'supplier.create') || roleCan(req.accessRole, 'supplier.manage')
+  res.json(canSeeLogins ? list.map((s) => ({ ...s, loginUsername: store.getUsers().find((u) => u.supplierId === s.id && u.roleId === SUPPLIER_ROLE_ID)?.username || '' })) : list)
 })
 
 router.post('/', (req, res) => {
@@ -62,6 +67,42 @@ router.post('/', (req, res) => {
   store.insert('suppliers', supplier)
   store.registerTags(supplier.tags)
   res.status(201).json(supplier)
+})
+
+// A supplier login has only portal permissions. It is linked to its supplier
+// record, so a creator cannot grant it access to the internal workspace.
+router.get('/:id/credentials', (req, res) => {
+  if (!roleCan(req.accessRole, 'supplier.create') && !roleCan(req.accessRole, 'supplier.manage')) return res.status(403).json({ error: 'Not allowed to manage supplier logins.' })
+  if (!store.find('suppliers', req.params.id)) return res.status(404).json({ error: 'Supplier not found.' })
+  const user = store.getUsers().find((u) => u.supplierId === req.params.id && u.roleId === SUPPLIER_ROLE_ID)
+  res.setHeader('Cache-Control', 'no-store')
+  res.json(user ? { username: user.username, enabled: user.enabled } : null)
+})
+
+router.post('/:id/credentials', async (req, res) => {
+  const supplier = store.find('suppliers', req.params.id)
+  if (!supplier) return res.status(404).json({ error: 'Supplier not found.' })
+  try {
+    if (!store.getRoles().some((r) => r.id === SUPPLIER_ROLE_ID)) {
+      store.insert('roles', { id: SUPPLIER_ROLE_ID, label: 'Supplier Portal', desc: 'Supplier access to assigned RFQs and quotation submission.', enabled: true, readOnly: false, builtIn: true, version: 1, color: 'ink', permissions: ['portal.access', 'quote.submit'] })
+    }
+    const portalRole = store.getRoles().find((r) => r.id === SUPPLIER_ROLE_ID)
+    if (!portalRole.enabled || portalRole.readOnly || portalRole.permissions.length !== 2 || !['portal.access', 'quote.submit'].every((p) => portalRole.permissions.includes(p))) throw new Error('Supplier portal role is misconfigured.')
+    const existing = store.getUsers().find((u) => u.supplierId === supplier.id && u.roleId === SUPPLIER_ROLE_ID)
+    const base = `supplier.${supplier.id.toLowerCase()}`
+    let username = existing?.username || base
+    if (!existing) for (let n = 2; store.getUsers().some((u) => u.username === username); n++) username = `${base}.${n}`
+    const password = randomBytes(24).toString('base64url')
+    const id = existing?.id || store.newId('user')
+    const passwordHash = await hashPassword(password)
+    const passwordCiphertext = encryptAccountPassword(password, id)
+    const user = existing
+      ? store.update('users', id, { passwordHash, passwordCiphertext, enabled: true, readOnly: false, version: existing.version + 1 })
+      : store.insert('users', { id, username, passwordHash, passwordCiphertext, roleId: SUPPLIER_ROLE_ID, supplierId: supplier.id, enabled: true, readOnly: false, version: 1 })
+    store.logAudit({ user: req.accessRole.username, action: existing ? 'Reset supplier login' : 'Created supplier login', field: supplier.id, value: username })
+    res.setHeader('Cache-Control', 'no-store')
+    res.status(existing ? 200 : 201).json({ username: user.username, password, supplierId: supplier.id })
+  } catch (error) { res.status(400).json({ error: error.message }) }
 })
 
 // POST /api/suppliers/upload  (multipart: file)
@@ -129,6 +170,7 @@ router.put('/:id', (req, res) => {
 })
 
 router.delete('/:id', (req, res) => {
+  if (store.getUsers().some((u) => u.supplierId === req.params.id)) return res.status(409).json({ error: 'Remove linked supplier logins and users before deleting this supplier.' })
   const ok = store.remove('suppliers', req.params.id)
   if (!ok) return res.status(404).json({ error: 'not found' })
   res.json({ ok: true })

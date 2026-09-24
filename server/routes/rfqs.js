@@ -57,8 +57,7 @@ router.get('/:id', (req, res) => {
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id).map(stripFile)
   if (!roleCan(req.accessRole, 'workspace.view')) {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
-    const lineIds = new Set(assignments.flatMap((a) => a.lineIds))
-    return res.json({ id: rfq.id, title: rfq.title, status: rfq.status, deadline: rfq.deadline, assignments, lines: rfq.lines.filter((l) => lineIds.has(l.lineId)), quotes: quotes.filter((q) => q.supplierId === req.supplierId) })
+    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, deadline: rfq.deadline, assignments, lines: rfq.lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId) })
   }
   res.json({ ...rfq, recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
 })
@@ -351,35 +350,41 @@ router.post('/:id/quote', (req, res) => {
   const supplier = store.find('suppliers', b.supplierId)
   const assignment = rfq.assignments.find((a) => a.supplierId === b.supplierId)
   if (!supplier || !assignment) return res.status(400).json({ error: 'Supplier must be assigned to this RFQ.' })
-  if (!Array.isArray(b.lines) || !b.lines.length || b.lines.some((l) => !assignment.lineIds.includes(l.lineId) || !isPriced(l)) || new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Quote must contain unique assigned items with positive prices.' })
+  if (!Array.isArray(b.lines) || !b.lines.length || b.lines.some((l) => !rfq.lines.some((item) => item.lineId === l.lineId) || !isPriced(l)) || new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Quote must contain unique RFQ items with positive prices.' })
+  const existing = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
+  const changed = new Map(b.lines.map((l) => [l.lineId, l]))
+  const lines = [...(existing?.lines || []).filter((l) => !changed.has(l.lineId)), ...b.lines.map((l) => {
+    const item = rfq.lines.find((r) => r.lineId === l.lineId)
+    const old = existing?.lines?.find((r) => r.lineId === l.lineId) || {}
+    return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate),
+      leadTime: l.leadTime ?? old.leadTime ?? '', warranty: l.warranty ?? old.warranty ?? '',
+      eta: l.eta ?? old.eta ?? '', remark: l.remark ?? old.remark ?? '' }
+  })]
   const quote = {
-    id: newId('QTE'),
+    ...(existing || {}), id: existing?.id || newId('QTE'),
     rfqId: rfq.id,
     supplierId: b.supplierId || null,
     supplierName: supplier.name,
-    lines: (b.lines || []).map((l) => ({
-      lineId: l.lineId || null, name: l.name, rate: Number(l.rate) || 0, qty: l.qty ?? 1,
-      leadTime: l.leadTime || '', warranty: l.warranty || '', eta: l.eta || '', remark: l.remark || '',
-    })),
-    paymentTerms: b.paymentTerms || '',
-    notes: b.notes || '',
+    lines,
+    paymentTerms: b.paymentTerms ?? existing?.paymentTerms ?? '',
+    notes: b.notes ?? existing?.notes ?? '',
     submittedAt: Date.now(),
   }
-  store.all('quotes').filter((q) => q.rfqId === rfq.id && q.supplierId === supplier.id).forEach((q) => store.remove('quotes', q.id))
-  store.insert('quotes', quote)
+  if (existing) store.update('quotes', existing.id, quote)
+  else store.insert('quotes', quote)
   invalidateRecommendation(rfq.id)
   // First response moves a Published RFQ forward.
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
-  store.logAudit({ rfqId: rfq.id, user: quote.supplierName || 'Supplier', action: 'Submitted quotation', field: 'Quotes', old: '', value: quote.id })
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: existing ? 'Updated supplier quotation' : 'Submitted supplier quotation', field: 'Quotes', old: '', value: `${supplier.name}: ${b.lines.length} item(s)` })
   store.notify({ type: 'response', title: `New quote from ${quote.supplierName} on ${rfq.title}`, rfqId: rfq.id })
-  res.status(201).json(quote)
+  res.status(existing ? 200 : 201).json(stripFile(quote))
 })
 
 // Shared: parse a quote DOCUMENT (currency-aware, USD), match it onto the RFQ's
 // lines (by name + quantity, order as a hint) and save it as the supplier's quote.
 async function buildQuoteFromFile(rfq, supplier, file) {
   const assignment = rfq.assignments.find((a) => a.supplierId === supplier.id)
-  rfq = { ...rfq, lines: rfq.lines.filter((l) => assignment?.lineIds.includes(l.lineId)) }
+  if (!assignment) throw new Error('Supplier must be assigned to this RFQ.')
   const extraction = await extractDocument({ buffer: file.buffer, filename: file.originalname })
   const { items: quoteLines, engine, currency, rate, rateSource, usedUsdColumn } = await extractQuote(extraction)
   const { map, engine: matchEngine } = await matchQuoteLines(rfq.lines, quoteLines)
@@ -401,16 +406,19 @@ async function buildQuoteFromFile(rfq, supplier, file) {
 
   if (finalized(store.find('rfqs', rfq.id))) throw new Error('This RFQ was finalized while the document was processing.')
   invalidateRecommendation(rfq.id)
-  // Replace any earlier quote from this supplier on this RFQ.
-  store.all('quotes').filter((q) => q.rfqId === rfq.id && q.supplierId === supplier.id).forEach((q) => store.remove('quotes', q.id))
-  const quote = store.insert('quotes', {
-    id: newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
-    lines, paymentTerms: '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
+  const previous = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
+  // A partial document must not erase prices entered manually for other items.
+  const mergedLines = [...(previous?.lines || []).filter((old) => !lines.some((line) => line.lineId === old.lineId && isPriced(line))),
+    ...lines.filter(isPriced)]
+  const quoteData = {
+    ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
+    lines: mergedLines, paymentTerms: previous?.paymentTerms || '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
     // keep the original file so the buyer can re-download the exact response
-    ...(file.blob ? { fileBlob: file.blob } : { fileData: file.buffer.toString('base64') }),
+    fileBlob: file.blob || null, fileData: file.blob ? null : file.buffer.toString('base64'),
     fileMime: file.mimetype || 'application/octet-stream', fileName: file.originalname,
     currency: 'USD', sourceCurrency: currency, fxRate: rate, fxSource: rateSource, submittedAt: Date.now(),
-  })
+  }
+  const quote = previous ? store.update('quotes', previous.id, quoteData) : store.insert('quotes', quoteData)
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
   store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Uploaded quotation document', field: 'Quotes', old: '', value: file.originalname })
   store.notify({ type: 'response', title: `New quote from ${supplier.name} on ${rfq.title}`, rfqId: rfq.id })

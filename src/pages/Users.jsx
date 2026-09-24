@@ -5,6 +5,7 @@ import { PERMISSIONS, PERMISSION_KEYS, WRITE_PERMISSIONS, WORKSPACE_PERMISSIONS 
 import { api, Suppliers } from '../api/client'
 import { roleColor } from '../data/auth'
 import { Card, Empty } from '../components/ui'
+import { Link } from 'react-router-dom'
 import BrandIcon from '../components/BrandIcon'
 
 const freshRole = () => ({ label: '', desc: '', permissions: [], enabled: true, readOnly: false })
@@ -93,7 +94,7 @@ export default function Users() {
   return <div className="space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><h1 className="flex items-center gap-2 text-2xl font-extrabold text-ink-900"><BrandIcon name="accounts" size={36} /> Roles & Users</h1><p className="mt-1 text-sm text-ink-500">Define permissions once in a role, then assign users their own logins.</p></div>
-      <div className="relative"><Search size={15} className="absolute left-3 top-3 text-ink-400" /><input aria-label="Search roles and users" className="input pl-9" placeholder="Search roles or users…" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+      <div className="flex flex-wrap gap-2"><Link to="/suppliers?new=1" className="btn-primary"><Plus size={16} /> Add supplier</Link><div className="relative"><Search size={15} className="absolute left-3 top-3 text-ink-400" /><input aria-label="Search roles and users" className="input pl-9" placeholder="Search roles or users…" value={query} onChange={(e) => setQuery(e.target.value)} /></div></div>
     </div>
     {notice && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     {createdCredential && <Card className="flex flex-wrap items-start justify-between gap-4 border-emerald-200 bg-emerald-50 p-4"><div className="min-w-0 flex-1"><p className="text-sm font-bold text-emerald-900">User credentials ready</p><dl className="mt-3 grid gap-3 sm:grid-cols-2"><div><dt className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Username</dt><dd className="mt-1 break-all font-mono text-sm font-semibold text-ink-900">{createdCredential.username}</dd></div><div><dt className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Password</dt><dd className="mt-1 break-all font-mono text-sm font-semibold text-ink-900">{createdCredential.password}</dd></div></dl><p className="mt-3 text-xs text-emerald-800">Share these privately. Administrator can view the password again from the user card.</p></div><div className="flex gap-2"><button className="btn-outline" onClick={() => navigator.clipboard.writeText(`Username: ${createdCredential.username}\nPassword: ${createdCredential.password}`)}><Copy size={15} /> Copy login</button><button className="btn-ghost" onClick={() => setCreatedCredential(null)}>Dismiss</button></div></Card>}
@@ -102,7 +103,7 @@ export default function Users() {
       <div className="mb-3 flex items-center justify-between"><div><h2 className="text-lg font-bold text-ink-900">Roles</h2><p className="text-sm text-ink-500">Permissions and restrictions are shared by every assigned user.</p></div><button className="btn-primary" onClick={() => openRole()}><Plus size={16} /> Create role</button></div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {roles.filter((role) => `${role.label} ${role.desc}`.toLowerCase().includes(query.toLowerCase())).map((role) => <Card key={role.id} className="p-4">
-          <div className="flex items-start justify-between gap-2"><span className={`chip ${roleColor(role)}`}><Shield size={13} /> {role.label}</span><div className="flex gap-1"><button type="button" aria-label={`Edit role ${role.label}`} className="btn-ghost p-1" disabled={role.id === 'admin'} onClick={() => openRole(role)}>{role.id === 'admin' ? <Lock size={15} /> : <Pencil size={15} />}</button>{role.id !== 'admin' && <button type="button" aria-label={`Delete role ${role.label}`} className="btn-ghost p-1 text-rose-600" onClick={() => removeRole(role)}><Trash2 size={15} /></button>}</div></div>
+          <div className="flex items-start justify-between gap-2"><span className={`chip ${roleColor(role)}`}><Shield size={13} /> {role.label}</span><div className="flex gap-1"><button type="button" aria-label={`Edit role ${role.label}`} className="btn-ghost p-1" disabled={role.builtIn} onClick={() => openRole(role)}>{role.builtIn ? <Lock size={15} /> : <Pencil size={15} />}</button>{!role.builtIn && <button type="button" aria-label={`Delete role ${role.label}`} className="btn-ghost p-1 text-rose-600" onClick={() => removeRole(role)}><Trash2 size={15} /></button>}</div></div>
           <p className="mt-3 min-h-10 text-sm text-ink-500">{role.desc || 'Custom role'}</p>
           <p className="mt-3 text-xs font-semibold text-ink-600">{role.id === 'admin' ? 'All permissions · Protected' : `${role.permissions.length} permissions · ${!role.enabled ? 'Disabled' : role.readOnly ? 'Read-only' : 'Enabled'}`} · {users.filter((user) => user.roleId === role.id).length} users</p>
         </Card>)}

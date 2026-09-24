@@ -3,6 +3,7 @@ import { Store, UploadCloud, Loader2, PackageCheck, MessageSquare, Send, CheckCi
 import { Rfqs, Suppliers } from '../api/client'
 import { Card, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
+import QuoteEditor from '../components/QuoteEditor'
 
 export default function Portal() {
   const { can, current } = useAuth()
@@ -37,10 +38,7 @@ export default function Portal() {
     Rfqs.get(rfqId).then(setRfq)
   }, [rfqId])
 
-  const myLines = rfq ? (() => {
-    const mine = rfq.assignments.filter((a) => a.supplierId === supplierId).flatMap((a) => a.lineIds)
-    return rfq.lines.filter((l) => mine.includes(l.lineId))
-  })() : []
+  const myLines = rfq?.lines || []
   const alreadyQuoted = rfq?.quotes?.some((q) => q.supplierId === supplierId)
 
   const upload = async (file) => {
@@ -70,7 +68,7 @@ export default function Portal() {
         <div>
           <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> Supplier Portal</div>
           <h1 className="mt-1 text-2xl font-extrabold">Welcome, {supplier.name}</h1>
-          <p className="mt-1 text-sm text-brand-100">Upload your quotation document for the RFQs assigned to you.</p>
+          <p className="mt-1 text-sm text-brand-100">Quote individual RFQ items or upload a quotation document.</p>
         </div>
       </div>
 
@@ -90,7 +88,7 @@ export default function Portal() {
       ) : (
         <Card className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} items to quote</span></h2>
+            <div><h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} RFQ items</span></h2>{rfq.description && <p className="mt-1 text-sm text-ink-600">{rfq.description}</p>}{rfq.deadline && <p className="mt-1 text-xs text-ink-500">Response deadline: {rfq.deadline}</p>}</div>
             <label className={`btn-primary cursor-pointer ${uploading || !can('quote.submit') || !can('ai.use') ? 'pointer-events-none opacity-70' : ''}`}>
               {uploading ? <><Loader2 size={16} className="animate-spin" /> Reading document…</> : <><UploadCloud size={16} /> {alreadyQuoted ? 'Re-upload quote' : 'Upload quote document'}</>}
               <input type="file" hidden disabled={!can('quote.submit') || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
@@ -100,7 +98,7 @@ export default function Portal() {
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
           <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>
 
-          {/* The items the supplier must quote (read-only) */}
+          {/* The full RFQ remains visible even when a supplier quotes only a few items. */}
           <div className="overflow-x-auto rounded-xl border border-ink-100">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
@@ -120,7 +118,7 @@ export default function Portal() {
                   return (
                     <tr key={l.lineId} className="align-top">
                       <td className="px-3 py-2 font-semibold text-ink-800">{l.name}</td>
-                      <td className="px-3 py-2 text-ink-600"><span className="line-clamp-2">{[l.spec, l.description].filter(Boolean).join(' · ') || '—'}</span></td>
+                      <td className="px-3 py-2 text-ink-600"><span>{[l.spec, l.description, l.secondaryRequirements, [l.brand, l.model, l.partNo].filter(Boolean).join(' / '), l.requiredDeliveryDate ? `Required delivery: ${l.requiredDeliveryDate}` : ''].filter(Boolean).join(' · ') || '—'}</span></td>
                       <td className="px-3 py-2 text-right text-ink-700">{l.qty}</td>
                       <td className="px-3 py-2 text-ink-600">{l.uom}</td>
                       {result && <td className="px-3 py-2 text-right font-semibold text-ink-800">{q && Number(q.rate) ? Number(q.rate).toFixed(2) : '—'}</td>}
@@ -131,6 +129,8 @@ export default function Portal() {
               </tbody>
             </table>
           </div>
+
+          {can('quote.submit') && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3><QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} /></div>}
 
           {result && (
             <div className="mt-4 space-y-2">
