@@ -641,7 +641,7 @@ router.post('/:id/delivery', (req, res) => {
 
   deliveries[idx] = d
   const patch = { deliveries }
-  if (deliveries.length && deliveries.every((x) => x.status === 'delivered') && rfq.status === 'Awarded') patch.status = 'Closed'
+  if (deliveries.length && deliveries.every((x) => x.status === 'delivered') && rfq.status === 'Awarded' && !rfq.award?.unawardedLineIds?.length) patch.status = 'Closed'
   store.update('rfqs', rfq.id, patch)
   res.json(store.find('rfqs', rfq.id))
 })
