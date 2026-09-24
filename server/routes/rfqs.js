@@ -1,8 +1,13 @@
 import { Router } from 'express'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import multer from 'multer'
+import { waitUntil } from '@vercel/functions'
 import * as store from '../store.js'
 import { newId } from '../store.js'
 import { deriveBaseName, addTagUnique } from '../lib/tags.js'
 import { upload } from '../lib/upload.js'
+import { inspectUploadedFile, readQueuedBlob } from '../lib/documents.js'
 import { extractDocument } from '../lib/extract.js'
 import { extractQuote, matchQuoteLines, scoreQuality, recommendBestPerItem } from '../lib/ai.js'
 
@@ -11,8 +16,11 @@ import { recordAction } from '../lib/diagnostics.js'
 import { documentDownload } from '../lib/documents.js'
 import { roleCan } from '../../shared/roles.js'
 import { rfqCreationDate, validDate } from '../../shared/rfqDates.js'
+import { MAX_UPLOAD_BYTES, validateUpload } from '../../shared/uploads.js'
 
 const router = Router()
+const queuedMultipart = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES } })
+const queuedUploadDir = () => join(process.env.RFQ_DATA_DIR || join(process.cwd(), 'server', 'data'), 'queued-uploads')
 const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)
 const invalidateRecommendation = (id) => store.update('rfqs', id, { recommendation: null, recommendedAt: null })
 const evaluationSnapshot = (id) => JSON.stringify({ rfq: store.find('rfqs', id), quotes: store.all('quotes').filter((q) => q.rfqId === id).map(stripFile) })
@@ -42,11 +50,14 @@ const withLineIds = (lines = []) =>
 
 // Access control replaces this header with the authenticated account's role.
 const actor = (req) => req.get('x-user-name') || req.body?.actor || 'System'
+const publicQuoteJob = (job) => ({ id: job.id, supplierId: job.supplierId, status: job.status, fileName: job.file?.name,
+  attempts: job.attempts, createdAt: job.createdAt, updatedAt: job.updatedAt, completedAt: job.completedAt,
+  error: job.error || '', result: job.result || null })
 
 router.get('/', (req, res) => {
   const internal = roleCan(req.accessRole, 'workspace.view')
   const list = store.all('rfqs').filter((r) => internal || r.assignments?.some((a) => a.supplierId === req.supplierId))
-  res.json(list.map((r) => internal ? { ...r, quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
+  res.json(list.map((r) => internal ? { ...r, quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
@@ -58,9 +69,9 @@ router.get('/:id', (req, res) => {
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id).map(stripFile)
   if (!roleCan(req.accessRole, 'workspace.view')) {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
-    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines: rfq.lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId) })
+    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines: rfq.lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
   }
-  res.json({ ...rfq, recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
+  res.json({ ...rfq, quoteJobs: (rfq.quoteJobs || []).map(publicQuoteJob), recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
 })
 
 // Download the exact response document a supplier uploaded.
@@ -424,11 +435,9 @@ router.post('/:id/quote', (req, res) => {
   res.status(existing ? 200 : 201).json(stripFile(quote))
 })
 
-// Shared: parse a quote DOCUMENT (currency-aware, USD), match it onto the RFQ's
-// lines (by name + quantity, order as a hint) and save it as the supplier's quote.
-async function buildQuoteFromFile(rfq, supplier, file) {
-  const assignment = rfq.assignments.find((a) => a.supplierId === supplier.id)
-  if (!assignment) throw new Error('Supplier must be assigned to this RFQ.')
+// Parsing can run after the upload request ends; persistence uses a fresh state
+// so unrelated writes during AI extraction do not invalidate the quote.
+async function parseQuoteFromFile(rfq, file) {
   const extraction = await extractDocument({ buffer: file.buffer, filename: file.originalname })
   const { items: quoteLines, engine, currency, rate, rateSource, usedUsdColumn } = await extractQuote(extraction)
   const { map, engine: matchEngine } = await matchQuoteLines(rfq.lines, quoteLines)
@@ -448,20 +457,32 @@ async function buildQuoteFromFile(rfq, supplier, file) {
     }
   })
 
-  if (finalized(store.find('rfqs', rfq.id))) throw new Error('This RFQ was finalized while the document was processing.')
+  return { lines, matchedIds: rfq.lines.filter((_, i) => map[i] >= 0).map((line) => line.lineId),
+    rfqLineIds: rfq.lines.map((line) => line.lineId), engine, matchEngine, currency, rate, rateSource, usedUsdColumn,
+    extracted: quoteLines.length, matched: map.filter((x) => x >= 0).length,
+    total: rfq.lines.length, unmatched: rfq.lines.filter((_, i) => map[i] < 0).map((line) => line.name) }
+}
+
+function saveParsedQuote(rfqId, supplierId, file, parsed) {
+  const rfq = store.find('rfqs', rfqId)
+  const supplier = store.find('suppliers', supplierId)
+  if (!rfq || !supplier) throw new Error('RFQ or supplier was removed while processing.')
+  if (finalized(rfq)) throw new Error('This RFQ was finalized while the document was processing.')
+  if (!rfq.assignments.some((assignment) => assignment.supplierId === supplierId)) throw new Error('Supplier is no longer assigned to this RFQ.')
+  if (rfq.lines.map((line) => line.lineId).join('|') !== parsed.rfqLineIds.join('|')) throw new Error('RFQ items changed during processing. Retry this upload.')
   invalidateRecommendation(rfq.id)
   const previous = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
   // A partial document must not erase prices entered manually for other items.
-  const matchedIds = new Set(rfq.lines.filter((_, i) => map[i] >= 0).map((line) => line.lineId))
+  const matchedIds = new Set(parsed.matchedIds)
   const mergedLines = [...(previous?.lines || []).filter((old) => !matchedIds.has(old.lineId)),
-    ...lines.filter(isPriced)]
+    ...parsed.lines.filter(isPriced)]
   const quoteData = {
     ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
     lines: mergedLines, paymentTerms: previous?.paymentTerms || '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
     // keep the original file so the buyer can re-download the exact response
     fileBlob: file.blob || null, fileData: file.blob ? null : file.buffer.toString('base64'),
     fileMime: file.mimetype || 'application/octet-stream', fileName: file.originalname,
-    currency: 'USD', sourceCurrency: currency, fxRate: rate, fxSource: rateSource, submittedAt: Date.now(),
+    currency: 'USD', sourceCurrency: parsed.currency, fxRate: parsed.rate, fxSource: parsed.rateSource, submittedAt: Date.now(),
   }
   const quote = previous ? store.update('quotes', previous.id, quoteData) : store.insert('quotes', quoteData)
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
@@ -471,13 +492,113 @@ async function buildQuoteFromFile(rfq, supplier, file) {
   file.retainBlob = true
 
   return {
-    quote: stripFile(quote), engine, matchEngine, currency, rate, rateSource, usedUsdColumn,
-    extracted: quoteLines.length,
-    matched: map.filter((x) => x >= 0).length,
-    total: rfq.lines.length,
-    unmatched: rfq.lines.filter((_, i) => map[i] < 0).map((l) => l.name),
+    quote: stripFile(quote), engine: parsed.engine, matchEngine: parsed.matchEngine, currency: parsed.currency,
+    rate: parsed.rate, rateSource: parsed.rateSource, usedUsdColumn: parsed.usedUsdColumn,
+    extracted: parsed.extracted, matched: parsed.matched, total: parsed.total, unmatched: parsed.unmatched,
   }
 }
+
+async function buildQuoteFromFile(rfq, supplier, file) {
+  if (!rfq.assignments.some((assignment) => assignment.supplierId === supplier.id)) throw new Error('Supplier must be assigned to this RFQ.')
+  const parsed = await parseQuoteFromFile(rfq, file)
+  return saveParsedQuote(rfq.id, supplier.id, file, parsed)
+}
+
+const JOB_TIMEOUT_MS = 6 * 60_000
+const findQuoteJob = (rfq, jobId) => rfq?.quoteJobs?.find((job) => job.id === jobId)
+const updateQuoteJob = (rfq, jobId, patch) => store.update('rfqs', rfq.id, {
+  quoteJobs: (rfq.quoteJobs || []).map((job) => job.id === jobId ? { ...job, ...patch, updatedAt: Date.now() } : job),
+})
+
+async function processQueuedQuote(rfqId, jobId) {
+  let snapshot
+  try {
+    snapshot = await store.withFreshState(() => {
+      const rfq = store.find('rfqs', rfqId)
+      const job = findQuoteJob(rfq, jobId)
+      if (!job || job.status === 'completed' || (job.status === 'processing' && Date.now() - job.updatedAt < JOB_TIMEOUT_MS)) return null
+      updateQuoteJob(rfq, jobId, { status: 'processing', error: '', attempts: (job.attempts || 0) + 1 })
+      return { rfq: structuredClone(rfq), job: structuredClone(job) }
+    })
+    if (!snapshot) return
+    const { job, rfq } = snapshot
+    const file = job.file.blob
+      ? await readQueuedBlob(job.file.blob)
+      : { originalname: job.file.name, mimetype: job.file.contentType, size: job.file.size, buffer: await readFile(job.file.localPath) }
+    const parsed = await parseQuoteFromFile(rfq, file)
+    await store.withFreshState(() => {
+      const current = store.find('rfqs', rfqId)
+      const active = findQuoteJob(current, jobId)
+      if (!active || active.status === 'completed') return
+      const result = saveParsedQuote(rfqId, job.supplierId, file, parsed)
+      updateQuoteJob(store.find('rfqs', rfqId), jobId, { status: 'completed', completedAt: Date.now(),
+        result: { matched: result.matched, priced: result.quote.lines.filter(isPriced).length, total: result.total, unmatched: result.unmatched, source: file.originalname }, file: { ...job.file, localPath: undefined } })
+    })
+    if (job.file.localPath) await unlink(job.file.localPath).catch(() => {})
+  } catch (error) {
+    console.error('[quote-job] failed:', error)
+    try { await store.withFreshState(() => {
+      const rfq = store.find('rfqs', rfqId)
+      if (findQuoteJob(rfq, jobId)?.status === 'processing') updateQuoteJob(rfq, jobId, { status: 'failed', error: String(error.message || 'Processing failed.').slice(0, 240) })
+    }) } catch (saveError) { console.error('[quote-job] could not save failure:', saveError) }
+  }
+}
+
+function scheduleQuoteJob(res, rfqId, jobId, localPath) {
+  const task = new Promise((resolve) => res.once('finish', resolve)).then(async () => {
+    if (res.statusCode >= 400) { if (localPath) await unlink(localPath).catch(() => {}); return }
+    await processQueuedQuote(rfqId, jobId)
+  }).catch((error) => console.error('[quote-job] scheduling failed:', error))
+  if (process.env.VERCEL) waitUntil(task)
+}
+
+// Upload receipt is acknowledged after durable storage; extraction continues
+// after the response, so suppliers can close the page immediately.
+router.post('/:id/quote-upload-queue', (req, res, next) => req.is('application/json') ? next() : queuedMultipart.single('file')(req, res, next), async (req, res) => {
+  let localPath
+  try {
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+    if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
+    const supplier = store.find('suppliers', req.query.supplierId || req.body?.supplierId)
+    if (!supplier || !rfq.assignments.some((assignment) => assignment.supplierId === supplier.id)) return res.status(403).json({ error: 'Supplier is not assigned to this RFQ.' })
+    if ((rfq.quoteJobs || []).some((job) => job.supplierId === supplier.id && ['queued', 'processing'].includes(job.status) && Date.now() - job.updatedAt < JOB_TIMEOUT_MS)) return res.status(409).json({ error: 'A quotation upload is already processing for this RFQ.' })
+    const target = `/rfqs/${rfq.id}/quote-upload-queue`
+    const id = newId('QJOB')
+    let file
+    if (req.body?.uploadReceipt) {
+      const blob = await inspectUploadedFile(req.body.uploadReceipt, target)
+      file = { name: blob.name, size: blob.size, contentType: blob.contentType, blob: { pathname: blob.pathname, size: blob.size, name: blob.name, contentType: blob.contentType, retainedUntil: blob.retainedUntil } }
+    } else if (req.file) {
+      const checked = validateUpload({ name: req.file.originalname, size: req.file.size, target })
+      await mkdir(queuedUploadDir(), { recursive: true })
+      localPath = join(queuedUploadDir(), id)
+      await writeFile(localPath, req.file.buffer)
+      file = { name: checked.name, size: checked.size, contentType: checked.contentType, localPath }
+    } else return res.status(400).json({ error: 'Upload a quotation file.' })
+    const job = { id, supplierId: supplier.id, rfqId: rfq.id, status: 'queued', attempts: 0, file,
+      createdAt: Date.now(), updatedAt: Date.now() }
+    store.update('rfqs', rfq.id, { quoteJobs: [...(rfq.quoteJobs || []), job] })
+    store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Queued quotation upload', field: 'Quotes', value: `${supplier.name}: ${file.name}` })
+    scheduleQuoteJob(res, rfq.id, id, localPath)
+    res.status(202).json({ id, status: 'queued', fileName: file.name })
+  } catch (error) {
+    if (localPath) await unlink(localPath).catch(() => {})
+    res.status(error.status || 500).json({ error: error.message })
+  }
+})
+
+router.post('/:id/quote-jobs/:jobId/retry', (req, res) => {
+  const rfq = store.find('rfqs', req.params.id)
+  const job = findQuoteJob(rfq, req.params.jobId)
+  if (!rfq || !job) return res.status(404).json({ error: 'Upload job not found.' })
+  if (job.supplierId !== (req.body?.supplierId || req.query.supplierId)) return res.status(403).json({ error: 'This upload belongs to another supplier.' })
+  if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
+  if (job.status === 'completed' || (job.status === 'processing' && Date.now() - job.updatedAt < JOB_TIMEOUT_MS)) return res.status(409).json({ error: 'This upload cannot be retried yet.' })
+  updateQuoteJob(rfq, job.id, { status: 'queued', error: '' })
+  scheduleQuoteJob(res, rfq.id, job.id, job.file.localPath)
+  res.status(202).json({ id: job.id, status: 'queued' })
+})
 
 // Supplier portal upload (logged-in supplier). [?supplierId=]
 router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {

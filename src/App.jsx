@@ -11,6 +11,7 @@ import ItemsPage from './pages/Items'
 import Import from './pages/Import'
 import Assign from './pages/Assign'
 import Portal from './pages/Portal'
+import SupplierUpload from './pages/SupplierUpload'
 import Compare from './pages/Compare'
 import Award from './pages/Award'
 import Reports from './pages/Reports'
@@ -24,6 +25,7 @@ export default function App() {
       <Routes>
         {/* RFQ response link inside the protected workspace — no app chrome */}
         <Route path="/r/:id" element={<Guard permission="quote.submit"><RfqRespond /></Guard>} />
+        <Route path="/supplier" element={<SupplierGateway />} />
         <Route path="/*" element={<AppShell />} />
       </Routes>
     </AuthProvider>
@@ -43,6 +45,13 @@ function Home() {
   return <Card className="p-8"><h1 className="text-2xl font-bold">{current.label}</h1><p className="mt-2 text-sm text-ink-500">Choose an available page from the sidebar. Ask Administrator for any additional access.</p></Card>
 }
 
+function SupplierGateway() {
+  const { can } = useAuth()
+  if (!can('portal.access') && !can('supplier.response.edit')) return <Guard permission="portal.access" />
+  if (can('workspace.view')) return <Layout><Portal /></Layout>
+  return <SupplierUpload />
+}
+
 function AppShell() {
   return (
     <Layout>
@@ -57,7 +66,6 @@ function AppShell() {
           <Route path="/assign" element={<Guard permission="rfq.create"><Assign /></Guard>} />
           <Route path="/assign/:id" element={<Guard permission="rfq.create"><Assign /></Guard>} />
           <Route path="/portal" element={<Guard permission={['portal.access', 'supplier.response.edit']}><Portal /></Guard>} />
-          <Route path="/supplier" element={<Guard permission={['portal.access', 'supplier.response.edit']}><Portal /></Guard>} />
           <Route path="/compare" element={<Guard permission="rfq.evaluate"><Compare /></Guard>} />
           <Route path="/award" element={<Guard permission={['rfq.evaluate', 'award.decide', 'approve.hod', 'approve.finance']}><Award /></Guard>} />
           <Route path="/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />

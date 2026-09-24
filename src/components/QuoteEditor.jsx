@@ -26,6 +26,10 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
     setDirty(true)
     setSelected((previous) => previous.includes(lineId) ? previous.filter((id) => id !== lineId) : [...previous, lineId])
   }
+  const toggleAll = () => {
+    setDirty(true)
+    setSelected((previous) => previous.length === rfq.lines.length ? [] : rfq.lines.map((line) => line.lineId))
+  }
   const submit = async (event) => {
     event.preventDefault(); setError(''); setNotice('')
     const lines = rfq.lines.filter((line) => selected.includes(line.lineId) && isPriced(values[line.lineId])).map((line) => ({ lineId: line.lineId, ...values[line.lineId] }))
@@ -42,6 +46,7 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
   if (!supplierId) return null
   return <form onSubmit={submit} className="space-y-3">
     <p className="text-sm text-ink-500">Only checked items with a positive unit price count as quoted. Unchecking a previously quoted item removes its price from comparison and awards.</p>
+    <button type="button" className="btn-outline py-1.5 text-xs" onClick={toggleAll} disabled={disabled || saving || !rfq.lines.length}>{selected.length === rfq.lines.length ? 'Clear all' : 'Select all items'}</button>
     <div className="overflow-x-auto rounded-xl border border-ink-100"><table className="w-full min-w-[720px] text-sm">
       <thead><tr className="bg-ink-50 text-left text-xs font-bold uppercase text-ink-600"><th className="px-3 py-2">Quote</th><th className="px-3 py-2">Item and specification</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2">Unit price (USD)</th><th className="px-3 py-2">ETA</th><th className="px-3 py-2">Note</th></tr></thead>
       <tbody className="divide-y divide-ink-100">{rfq.lines.map((line) => <tr key={line.lineId}>

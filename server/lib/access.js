@@ -27,6 +27,7 @@ export function requiredPermissions(method, path, body = {}) {
   }
   if (path.startsWith('/rfqs')) {
     if (method === 'GET') return path.includes('/quote-file/') ? ['data.export', 'workspace.view'] : ['workspace.view|portal.access']
+    if (path.endsWith('/quote-upload-queue') || /\/quote-jobs\/[^/]+\/retry$/.test(path)) return ['quote.submit|supplier.response.edit']
     if (path.endsWith('/quote-upload')) return ['quote.submit|supplier.response.edit', 'ai.use']
     if (path.endsWith('/respond')) return ['quote.submit', 'ai.use']
     if (path.endsWith('/quote')) return ['quote.submit|supplier.response.edit']
@@ -52,10 +53,12 @@ export function accessControl(req, res, next) {
   if (!active) return res.status(401).json({ error: 'Please sign in.' })
   const role = active.account
   if (!checkAccess(role, req.method, path, req.body)) return res.status(403).json({ error: 'Your account does not allow this action.' })
+  const target = path === '/uploads/prepare' ? req.body?.target : path
+  if (typeof target === 'string' && (/\/quote-upload-queue$/i.test(target) || /\/quote-jobs\/[^/]+\/retry$/i.test(target)) && roleCan(role, 'workspace.view') && !roleCan(role, 'ai.use')) return res.status(403).json({ error: 'This action requires the AI permission.' })
   req.accessRole = role
   req.headers['x-user-name'] = role.username
   req.supplierId = role.supplierId || ''
-  const targetPath = path === '/uploads/prepare' ? req.body?.target : path
+  const targetPath = target
   if (!roleCan(role, 'workspace.view') && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath)) {
     const id = targetPath.split('/')[2]
     const rfq = store.find('rfqs', id)

@@ -218,7 +218,21 @@ const requestState = new AsyncLocalStorage()
 const currentDb = () => requestState.getStore()?.data || db
 export const runWithState = (state, fn) => requestState.run(state, fn)
 export const commitOnError = () => { const state = requestState.getStore(); if (state) state.commitOnError = true }
-export const cloudPersistence = createCloudMiddleware(createPostgresDatabase(seed), runWithState)
+const cloudDatabase = createPostgresDatabase(seed)
+export const cloudPersistence = createCloudMiddleware(cloudDatabase, runWithState)
+
+// Background work starts after the HTTP response has committed. Give each
+// short read/write its own current snapshot and retry concurrent commits.
+export async function withFreshState(fn) {
+  if (!process.env.DATABASE_URL) return fn()
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const state = await cloudDatabase.load()
+    const result = await runWithState(state, fn)
+    if (!state.dirty) return result
+    try { await cloudDatabase.commit(state); return result }
+    catch (error) { if (error.status !== 409 || attempt === 3) throw error }
+  }
+}
 
 function ensure() {
   if (requestState.getStore()) return

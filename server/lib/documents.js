@@ -86,6 +86,23 @@ export async function readUploadedFile(receipt, target) {
     blob: { pathname: data.pathname, expiresAt: data.retainedUntil } }
 }
 
+export async function inspectUploadedFile(receipt, target) {
+  const data = verifyReceipt(receipt, target)
+  const result = await get(data.pathname, { ...options(), access: 'private', useCache: false, abortSignal: AbortSignal.timeout(15000) })
+  if (!result || result.statusCode !== 200) throw fail('Uploaded file was not found. Please upload it again.', 404)
+  await result.stream.cancel()
+  if (result.blob.size !== data.size) throw fail('Uploaded file size does not match.', 413)
+  return data
+}
+
+export async function readQueuedBlob({ pathname, size, name, contentType, retainedUntil }) {
+  if (retainedUntil <= Date.now()) throw fail('The uploaded file expired. Upload it again.', 410)
+  const result = await get(pathname, { ...options(), access: 'private', useCache: false, abortSignal: AbortSignal.timeout(60000) })
+  if (!result || result.statusCode !== 200) throw fail('Uploaded file was not found. Upload it again.', 404)
+  if (result.blob.size !== size) { await result.stream.cancel(); throw fail('Uploaded file size does not match.', 413) }
+  return { originalname: name, mimetype: contentType, size, buffer: await readLimited(result.stream, size), blob: { pathname, expiresAt: retainedUntil } }
+}
+
 export async function discardUpload(file) {
   if (file?.blob) await del(file.blob.pathname, options())
 }

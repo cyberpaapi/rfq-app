@@ -173,6 +173,24 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.deepEqual((await request(`/rfqs/${mini.id}`, null, 'GET')).data.quotes.find((q) => q.supplierId === supplier.data.id).lines.map((line) => line.lineId), [mini.lines[1].lineId])
     assert.equal((await asIntake(`/rfqs/${mini.id}/quote`, { supplierId: supplier.data.id, replaceLines: true, lines: [] })).status, 200)
     assert.ok(!(await request(`/rfqs/${mini.id}`, null, 'GET')).data.quotes.some((q) => q.supplierId === supplier.data.id))
+    const form = new FormData()
+    form.append('file', new Blob(['First item,1,10\n'], { type: 'text/plain' }), 'supplier-response.txt')
+    const uploaded = await fetch(`http://localhost:${port}/api/rfqs/${mini.id}/quote-upload-queue?supplierId=${supplier.data.id}`, {
+      method: 'POST', headers: { Cookie: supplierCookie, 'x-opro-request': '1' }, body: form,
+    })
+    assert.equal(uploaded.status, 202)
+    const queued = await uploaded.json()
+    assert.equal(queued.status, 'queued')
+    let job
+    for (let i = 0; i < 40; i++) {
+      const view = (await request(`/rfqs/${mini.id}`, null, 'GET', supplierCookie)).data
+      job = view.quoteJobs.find((entry) => entry.id === queued.id)
+      assert.ok(job && !JSON.stringify(job).includes('localPath'))
+      if (['completed', 'failed'].includes(job.status)) break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    assert.equal(job.status, 'completed', job.error)
+    assert.equal((await request(`/rfqs/${mini.id}/quote-jobs/${job.id}/retry`, { supplierId: supplier.data.id }, 'POST', supplierCookie)).status, 409)
     assert.equal((await request('/rfqs', null, 'GET')).data.find((r) => r.id === mini.id).quoteCount, 0)
     const another = (await asIntake('/suppliers', { name: 'Uninvited vendor' })).data
     assert.equal((await asIntake(`/rfqs/${mini.id}/quote`, { supplierId: another.id, lines: [{ lineId: mini.lines[1].lineId, rate: 11 }] })).status, 400)

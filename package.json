@@ -15,6 +15,7 @@
     "@napi-rs/canvas": "^0.1.65",
     "@neondatabase/serverless": "^1.1.0",
     "@vercel/blob": "^2.8.0",
+    "@vercel/functions": "^3.9.9",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "lucide-react": "^0.456.0",
