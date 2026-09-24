@@ -37,6 +37,7 @@ export default function CreateRfq() {
   const [supQuery, setSupQuery] = useState('')
   const [importing, setImporting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -105,22 +106,23 @@ export default function CreateRfq() {
       .filter((s) => !supQuery || s.name.toLowerCase().includes(supQuery.toLowerCase()) || (s.tags || []).some((t) => t.toLowerCase().includes(supQuery.toLowerCase())))
       .sort((a, b) => Number(b.previouslyInvited) - Number(a.previouslyInvited))
   }, [suppliers, catFilter, supQuery])
+  const readyLines = lines.filter((line) => typeof line.name === 'string' && line.name.trim())
 
   const canNext =
     (step === 0 && form.title) ||
-    (step === 1 && lines.length > 0) ||
+    (step === 1 && readyLines.length > 0) ||
     (step === 2 && picked.length > 0) ||
     step === 3
 
   const save = async (publish) => {
-    setSaving(true)
+    setSaving(true); setSaveError('')
     try {
       const rfq = await Rfqs.create({
         title: form.title, description: form.description, category: form.category,
         currency: form.currency, deadline: form.deadline, validity: form.validity,
         deliveryLocation: form.deliveryLocation, paymentTerms: form.paymentTerms,
         budget: Number(form.budget) || 0,
-        lines: lines.map((l) => ({
+        lines: readyLines.map((l) => ({
           itemId: l.itemId, sku: l.sku || '', name: l.name, spec: l.spec, description: l.description,
           qty: Number(l.quantity) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
           secondaryRequirements: l.secondaryRequirements, remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
@@ -131,7 +133,7 @@ export default function CreateRfq() {
         for (const supplierId of picked) await Rfqs.assign(rfq.id, { supplierId, type: 'full' })
       }
       nav(`/rfqs/${rfq.id}`)
-    } finally { setSaving(false) }
+    } catch (error) { setSaveError(error.message) } finally { setSaving(false) }
   }
 
   if (!can('rfq.create')) {
@@ -235,7 +237,7 @@ export default function CreateRfq() {
                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
                 <input value={itemQuery} onChange={(e) => setItemQuery(e.target.value)} className="input py-2 pl-9" placeholder="Search the catalogue to add an item…" />
               </div>
-              <span className="chip bg-brand-50 text-brand-700">{lines.length} items</span>
+              <span className="chip bg-brand-50 text-brand-700">{readyLines.length} named items</span>
             </div>
 
             {catalogueError && <p role="alert" className="text-sm text-rose-700">{catalogueError}</p>}
@@ -310,11 +312,12 @@ export default function CreateRfq() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-ink-100 p-4">
-                <p className="mb-2 font-bold text-ink-800">{lines.length} Items</p>
+                <p className="mb-2 font-bold text-ink-800">{readyLines.length} Items</p>
                 <ul className="space-y-1 text-sm text-ink-600">
-                  {lines.map((it) => <li key={it._key}>· {it.name} × {it.quantity} {it.uom}</li>)}
-                  {lines.length === 0 && <li className="text-ink-400">No items added</li>}
+                  {readyLines.map((it) => <li key={it._key}>· {it.name} × {it.quantity} {it.uom}</li>)}
+                  {readyLines.length === 0 && <li className="text-ink-400">No named items added</li>}
                 </ul>
+                {lines.length > readyLines.length && <p className="mt-2 text-xs text-amber-700">{lines.length - readyLines.length} blank item row(s) will be skipped.</p>}
               </div>
               <div className="rounded-xl border border-ink-100 p-4">
                 <p className="mb-2 font-bold text-ink-800">{picked.length} Suppliers</p>
@@ -328,14 +331,15 @@ export default function CreateRfq() {
         )}
 
         {/* Footer nav */}
+        {saveError && <p role="alert" className="mt-5 text-sm text-rose-700">{saveError}</p>}
         <div className="mt-6 flex items-center justify-between border-t border-ink-100 pt-5">
           <button className="btn-ghost" disabled={step === 0} onClick={() => setStep((s) => s - 1)}><ArrowLeft size={16} /> Back</button>
           {step < steps.length - 1 ? (
             <button className="btn-primary" disabled={!canNext} onClick={() => setStep((s) => s + 1)}>Next <ArrowRight size={16} /></button>
           ) : (
             <div className="flex gap-2">
-              <button className="btn-outline" disabled={saving || lines.length === 0} onClick={() => save(false)}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Save as Draft'}</button>
-              <button className="btn-primary" disabled={!can('rfq.publish') || saving || lines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish RFQ</>}</button>
+              <button className="btn-outline" disabled={saving || readyLines.length === 0} onClick={() => save(false)}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Save as Draft'}</button>
+              <button className="btn-primary" disabled={!can('rfq.publish') || saving || readyLines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish RFQ</>}</button>
             </div>
           )}
         </div>

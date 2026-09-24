@@ -30,7 +30,7 @@ export function validateAward(rfq, quotes, suppliers, body) {
   if (type === 'reject') return { type, reason: body.reason || '', at: Date.now() }
   if (!rfq.lines.length) throw new Error('Add RFQ items before awarding.')
   const groups = type === 'full' ? [{ supplierId, lineIds: rfq.lines.map((l) => l.lineId) }] : awards
-  if (!Array.isArray(groups) || !groups.length) throw new Error('Select suppliers for every RFQ item.')
+  if (!Array.isArray(groups) || !groups.length) throw new Error('Select at least one priced RFQ item to award.')
   const seen = new Set(), supplierIds = new Set()
   const splits = groups.map((group) => {
     const supplier = suppliers.find((s) => s.id === group.supplierId)
@@ -51,8 +51,12 @@ export function validateAward(rfq, quotes, suppliers, body) {
     }
     return { supplierId: supplier.id, supplierName: supplier.name, lineIds: group.lineIds, amount: Math.round(amount * 100) / 100 }
   })
-  if (seen.size !== rfq.lines.length) throw new Error('Select a priced supplier for every RFQ item before awarding.')
+  const unawarded = rfq.lines.filter((line) => !seen.has(line.lineId))
+  if (type === 'full' && unawarded.length) throw new Error('Select a priced supplier for every RFQ item before a full award.')
+  if (type === 'split' && unawarded.some((line) => quotes.some((quote) => suppliers.find((supplier) => supplier.id === quote.supplierId)?.qualified !== false && isPriced(quote.lines?.find((item) => item.lineId === line.lineId))))) {
+    throw new Error('Allocate every item that has a qualified supplier quote before awarding.')
+  }
   const amount = Math.round(splits.reduce((sum, s) => sum + s.amount, 0) * 100) / 100
   return type === 'full' ? { type, supplierId: splits[0].supplierId, supplierName: splits[0].supplierName, amount, at: Date.now() }
-    : { type, splits, amount, at: Date.now() }
+    : { type, splits, unawardedLineIds: unawarded.map((line) => line.lineId), amount, at: Date.now() }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts'
 import { Award as AwardIcon, Trophy, Check, X, Lock, ShieldCheck, Split, ChevronRight, Sparkles, Wand2 } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { isPriced, quoteCoverage, scoreCandidates } from '../../shared/evaluation'
 import { Rfqs, Suppliers, Reports } from '../api/client'
 import { fmt } from '../data/mock'
@@ -33,7 +33,7 @@ export default function Award() {
 
   useEffect(() => {
     Promise.all([Rfqs.list(), Suppliers.list()]).then(([rfqs, sups]) => {
-      const cands = rfqs.filter((r) => r.quoteCount >= 2 || r.status === 'Awarded')
+      const cands = rfqs.filter((r) => r.quoteCount > 0 || ['Evaluation', 'Pending Approval', 'Awarded'].includes(r.status))
       setCandidates(cands)
       setRfqId(cands.some((r) => r.id === requestedId) ? requestedId : cands[0]?.id || '')
       setSuppliers(Object.fromEntries(sups.map((s) => [s.id, s])))
@@ -99,12 +99,14 @@ export default function Award() {
 
   if (error && !rfq) return <Card className="p-6 text-rose-700">{error}</Card>
   if (candidates === null) return <Card><Spinner label="Loading evaluation…" /></Card>
-  if (candidates.length === 0) return <Card className="p-8"><Empty icon="award" title="Nothing to evaluate yet" hint="An RFQ needs ≥2 responses before award." /></Card>
+  if (candidates.length === 0) return <Card className="p-8"><Empty icon="award" title="Nothing to evaluate yet" hint="An RFQ needs at least one priced response before award." /></Card>
   if (!rfq) return <Card><Spinner /></Card>
 
   const cheapest = eligibleTotals.length ? eligibleTotals.reduce((a, b) => (a.total <= b.total ? a : b)) : null
   const winner = rfq.award?.type === 'full' ? rfq.award.supplierId : method === 'lowest' ? cheapest?.sid : method === 'weighted' ? ranked[0]?.sid : null
   const totalFor = (sid) => totals.find((t) => t.sid === sid)?.total || 0
+  const noQuoteLines = rfq.lines.filter((line) => !quotes.some((quote) => suppliers[quote.supplierId]?.qualified !== false && isPriced(quote.lines?.find((item) => item.lineId === line.lineId))))
+  const confirmPartial = () => !noQuoteLines.length || window.confirm(`${noQuoteLines.length} item(s) have no supplier quote and will remain unawarded:\n${noQuoteLines.map((line) => `• ${line.name}`).join('\n')}\n\nAward the quoted items now?`)
   const radarData = CRITERIA.map((c) => {
     const row = { criteria: c.label }
     supIds.forEach((sid) => (row[sid] = scoresOf(sid)[c.key]))
@@ -119,6 +121,7 @@ export default function Award() {
     try { await Rfqs.award(rfqId, { type: 'full', supplierId: winner, amount: totalFor(winner) }); flash(`Awarded to ${nameOf(winner)}`); load() } catch (e) { flash(e.message) } finally { setBusy(false) }
   }
   const awardSplit = async () => {
+    if (!confirmPartial()) return
     setBusy(true)
     try {
       // Each line to its cheapest bidder.
@@ -199,6 +202,7 @@ export default function Award() {
 
   const awardSegregation = async () => {
     if (!groups) return
+    if (!confirmPartial()) return
     setBusy(true)
     try {
       const awards = groups.map((s) => ({ supplierId: s.supplierId, lineIds: s.lines.map((l) => l.lineId), amount: s.totalCost }))
@@ -211,7 +215,7 @@ export default function Award() {
   const awarded = rfq.status === 'Awarded' || rfq.award
   const canAward = can('award.decide') && !['Cancelled', 'Closed'].includes(rfq.status)
   const allocatedCount = groups?.reduce((sum, g) => sum + g.lineCount, 0) || 0
-  const splitComplete = rfq.lines.length > 0 && rfq.lines.every((line) => suppliersForLine(line.lineId).length > 0)
+  const splitAvailable = rfq.lines.some((line) => suppliersForLine(line.lineId).length > 0)
   const chooseMethod = (value) => { setAllocation(null); setMethod(value) }
 
   return (
@@ -224,7 +228,11 @@ export default function Award() {
         <select value={rfqId} onChange={(e) => setRfqId(e.target.value)} disabled={busy} aria-label="Select RFQ" className="input w-auto py-2">
           {candidates.map((r) => <option key={r.id} value={r.id}>{r.id} — {r.title}</option>)}
         </select>
+        {can('rfq.create') && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline">Edit RFQ items</Link>}
       </div>
+
+      {noQuoteLines.length > 0 && !awarded && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><b>{noQuoteLines.length} item(s) have no supplier quote.</b> A split award can proceed for the quoted items; the unquoted items will remain unawarded. <span className="mt-1 block">{noQuoteLines.map((line) => line.name).join(' · ')}</span></div>}
+      {awarded && rfq.award?.unawardedLineIds?.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><b>Partial award:</b> {rfq.award.unawardedLineIds.length} RFQ item(s) remain unawarded. {rfq.lines.filter((line) => rfq.award.unawardedLineIds.includes(line.lineId)).map((line) => line.name).join(' · ')}</div>}
 
       <Card className="p-4">
         <div className="flex flex-wrap gap-2">
@@ -312,8 +320,8 @@ export default function Award() {
                     <span className="text-sm font-semibold text-ink-700">Grand total ({groups.reduce((a, s) => a + s.lineCount, 0)} items · {groups.reduce((a, s) => a + s.totalQty, 0)} qty)</span>
                     <span className="text-lg font-extrabold text-ink-900">{fmt(groups.reduce((a, s) => a + s.totalCost, 0))}</span>
                   </div>
-                  {allocatedCount < rfq.lines.length && <p className="text-sm text-amber-700">{rfq.lines.length - allocatedCount} items still need a priced supplier.</p>}
-                  {canAward && <button className="btn-primary w-full" disabled={busy || allocatedCount !== rfq.lines.length} onClick={awardSegregation}><Check size={16} /> Award this split</button>}
+                  {allocatedCount < rfq.lines.length && <p className="text-sm text-amber-700">{rfq.lines.length - allocatedCount} item(s) remain unawarded. Items without a quote can be left out of this split.</p>}
+                  {canAward && <button className="btn-primary w-full" disabled={busy || !allocatedCount || allocatedCount + noQuoteLines.length !== rfq.lines.length} onClick={awardSegregation}><Check size={16} /> Award this split</button>}
                 </div>
               )}
             </Card>
@@ -357,7 +365,7 @@ export default function Award() {
             ) : canAward ? (
               <div className="mt-4 space-y-2">
                 <button className="btn-primary w-full" disabled={busy || !winner || method === 'ai' || (method === 'weighted' && totalWeight <= 0)} onClick={awardFull}><Check size={16} /> Award Full RFQ</button>
-                <button className="btn-outline w-full" disabled={busy || !splitComplete} onClick={awardSplit}>Split Award (per-line cheapest)</button>
+                <button className="btn-outline w-full" disabled={busy || !splitAvailable} onClick={awardSplit}>Split Award (per-line cheapest)</button>
                 <button className="btn-outline w-full text-rose-600 hover:bg-rose-50" disabled={busy} onClick={rejectAll}><X size={16} /> Reject All Quotes</button>
               </div>
             ) : (

@@ -114,7 +114,7 @@ export default function Assign() {
     flash(`Rated ${rating.name} ${stars}★`)
   }
 
-  const onItemsSaved = async () => { setEditorOpen(false); await loadRfq(rfq.id); flash('Items updated') }
+  const onItemsSaved = async (updated) => { setEditorOpen(false); await loadRfq(rfq.id); flash(updated.status === 'Evaluation' && !!rfq.award ? 'Items updated; award reopened for review' : 'Items updated') }
 
   const generateLink = async () => {
     const url = `${window.location.origin}/r/${rfq.id}`
@@ -316,7 +316,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
   const [expanded, setExpanded] = useState(null)
   const [error, setError] = useState('')
 
-  useEffect(() => { if (open) { setLines(rfq.lines.map((l) => ({ ...l }))); setExpanded(null) } }, [open, rfq])
+  useEffect(() => { if (open) { setLines(rfq.lines.map((l) => ({ ...l }))); setExpanded(null); setError('') } }, [open, rfq])
 
   const upd = (i, k, v) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)))
   const add = () => setLines((ls) => [...ls, { name: '', spec: '', qty: 1, uom: 'PCS', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', description: '' }])
@@ -331,13 +331,8 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
         secondaryRequirements: l.secondaryRequirements || '',
         remark: l.remark || '', requiredDeliveryDate: l.requiredDeliveryDate || '', photo: l.photo || '', attachment: l.attachment || '',
       }))
-      // Drop any removed lines from existing assignments so they don't dangle.
-      const keptIds = new Set(clean.map((l) => l.lineId).filter(Boolean))
-      const assignments = (rfq.assignments || [])
-        .map((a) => ({ ...a, lineIds: a.lineIds.filter((lid) => keptIds.has(lid)) }))
-        .filter((a) => a.lineIds.length > 0)
-      await Rfqs.update(rfq.id, { lines: clean, assignments })
-      onSaved()
+      const updated = await Rfqs.update(rfq.id, { lines: clean })
+      onSaved(updated)
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -349,6 +344,8 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
       </>}>
       <div className="space-y-2">
         {error && <p className="text-sm text-rose-700">{error}</p>}
+        {!!rfq.award && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Changing items will reopen this RFQ for award review. Its current award and delivery plan will be archived, and approvals must be given again.</p>}
+        <p className="text-xs text-ink-500">Rows without an item name are skipped when you save.</p>
         {lines.map((l, i) => (
           <div key={i} className="rounded-xl border border-ink-100 p-3">
             <div className="flex flex-wrap items-center gap-2">

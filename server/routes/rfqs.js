@@ -20,11 +20,11 @@ const evaluationSnapshot = (id) => JSON.stringify({ rfq: store.find('rfqs', id),
 const WORKFLOW = ['Draft', 'Published', 'Responses Received', 'Evaluation', 'Pending Approval', 'Awarded']
 
 const withLineIds = (lines = []) =>
-  lines.map((l) => ({
+  lines.filter((l) => typeof l?.name === 'string' && l.name.trim()).map((l) => ({
     lineId: l.lineId || newId('LN'),
     itemId: l.itemId || null,
     sku: l.sku || '',
-    name: l.name,
+    name: l.name.trim(),
     spec: l.spec || '',
     description: l.description || '',
     qty: l.qty ?? 1,
@@ -230,6 +230,9 @@ router.post('/:id/forward-evaluation', (req, res) => {
 router.post('/', (req, res) => {
   const b = req.body || {}
   if (b.status && b.status !== 'Draft') return res.status(400).json({ error: 'Create a draft, then use the publish or award workflow.' })
+  if (b.lines !== undefined && !Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
+  const lines = withLineIds(b.lines)
+  if (lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) return res.status(400).json({ error: 'Every named item needs a positive quantity.' })
   const rfq = {
     id: newId('RFQ'),
     title: b.title || 'Untitled RFQ',
@@ -246,7 +249,7 @@ router.post('/', (req, res) => {
     attachments: b.attachments || [],
     approvals: {},
     clarifications: [],
-    lines: withLineIds(b.lines),
+    lines,
     assignments: [],
     createdAt: Date.now(),
   }
@@ -258,17 +261,41 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const current = store.find('rfqs', req.params.id)
   if (!current) return res.status(404).json({ error: 'rfq not found' })
-  if (finalized(current)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   const b = { ...req.body }
+  if (finalized(current)) {
+    if (b.lines === undefined) return res.status(409).json({ error: 'Only item edits can reopen this finalized RFQ.' })
+    for (const key of Object.keys(b)) if (key !== 'lines') delete b[key]
+  }
   // Workflow decisions must go through their validated endpoints.
-  for (const key of ['award', 'status', 'approvals', 'deliveries', 'assignments', 'recommendation']) delete b[key]
-  if (b.lines) {
-    if (!Array.isArray(b.lines) || b.lines.some((l) => !l.name?.trim() || !Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0)) return res.status(400).json({ error: 'Every item needs a name and a positive quantity.' })
+  for (const key of ['award', 'awardHistory', 'status', 'approvals', 'deliveries', 'assignments', 'recommendation', 'recommendedAt']) delete b[key]
+  if (b.lines !== undefined) {
+    if (!Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
     b.lines = withLineIds(b.lines)
+    if (b.lines.some((l) => !Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0)) return res.status(400).json({ error: 'Every named item needs a positive quantity.' })
     if (new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Duplicate item IDs.' })
+    const changed = JSON.stringify(withLineIds(current.lines)) !== JSON.stringify(b.lines)
     const kept = new Set(b.lines.map((l) => l.lineId))
     b.assignments = current.assignments.map((a) => ({ ...a, lineIds: a.type === 'full' ? [...kept] : a.lineIds.filter((id) => kept.has(id)) })).filter((a) => a.lineIds.length)
-    b.recommendation = null
+    if (changed) {
+      b.recommendation = null
+      b.recommendedAt = null
+      for (const quote of store.all('quotes').filter((q) => q.rfqId === current.id)) {
+        store.update('quotes', quote.id, { lines: (quote.lines || []).filter((line) => kept.has(line.lineId)).map((line) => {
+          const item = b.lines.find((candidate) => candidate.lineId === line.lineId)
+          return { ...line, name: item.name, qty: item.qty }
+        }) })
+      }
+      if (current.award || ['Awarded', 'Closed', 'Cancelled'].includes(current.status)) {
+        b.awardHistory = [...(current.awardHistory || []), ...(current.award ? [{ ...current.award, approvals: current.approvals || {}, deliveries: current.deliveries || [], reopenedAt: Date.now() }] : [])]
+        b.award = null
+        b.deliveries = []
+        b.approvals = {}
+        b.status = 'Evaluation'
+        store.removeItemPurchasesForRfq(current.id)
+        store.logAudit({ rfqId: current.id, user: actor(req), action: 'Reopened award after item changes', field: 'Award', old: current.award?.type || current.status, value: 'Evaluation' })
+      }
+      store.logAudit({ rfqId: current.id, user: actor(req), action: 'Updated RFQ items', field: 'Items', old: `${current.lines.length} item(s)`, value: `${b.lines.length} item(s)` })
+    }
   }
   delete b.id
   const updated = store.update('rfqs', req.params.id, b)

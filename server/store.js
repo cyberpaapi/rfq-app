@@ -272,6 +272,25 @@ export function getRoles() {
   if (!currentDb().loginAttempts) { currentDb().loginAttempts = []; flush() }
   return currentDb().roles
 }
+
+// An item edit reopens an awarded RFQ. Remove its superseded catalogue purchase
+// snapshots so a later award records only the revised decision.
+export function removeItemPurchasesForRfq(rfqId) {
+  ensure()
+  let touched = 0
+  for (const item of currentDb().items) {
+    const previous = item.priceHistory || []
+    const history = previous.filter((entry) => entry.rfqId !== rfqId)
+    if (history.length === previous.length) continue
+    item.priceHistory = history
+    const latest = history.reduce((best, entry) => !best || Number(entry.at) >= Number(best.at) ? entry : best, null)
+    item.lastBoughtPrice = latest?.price ?? null
+    item.lastBoughtAt = latest?.at ?? null
+    touched++
+  }
+  if (touched) flush()
+  return touched
+}
 export function getUsers() { getRoles(); return currentDb().users }
 export const find = (coll, id) => { ensure(); return currentDb()[coll].find((x) => x.id === id) }
 

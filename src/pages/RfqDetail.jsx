@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, MapPin, CreditCard, Wallet, Check, GitCompareArrows,
-  Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck, Truck, Star,
+  Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck, Truck, Star, Pencil,
 } from 'lucide-react'
 import { Rfqs } from '../api/client'
 import { WORKFLOW, STATUS, fmt } from '../data/mock'
@@ -99,6 +99,7 @@ export default function RfqDetail() {
           <p className="mt-2 max-w-2xl text-sm text-ink-600">{rfq.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {can('rfq.create') && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline"><Pencil size={16} /> Edit items</Link>}
           {can('rfq.evaluate') && <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>}
           {rfq.status === STATUS.DRAFT && can('rfq.publish') && (
             <button className="btn-primary" disabled={busy} onClick={() => setStatus(STATUS.PUBLISHED)}><Send size={16} /> Publish</button>
@@ -268,9 +269,10 @@ export default function RfqDetail() {
                 <span className="font-bold text-emerald-700">{fmt(rfq.award.amount)}</span>
               </div>
               <div className="mt-2 flex items-center justify-between rounded-xl bg-white p-3">
-                <span className="text-sm text-ink-500">Savings vs budget</span>
+                <span className="text-sm text-ink-500">{rfq.award.unawardedLineIds?.length ? 'Budget less awarded amount' : 'Savings vs budget'}</span>
                 <span className="font-bold text-emerald-700">{fmt((rfq.budget || 0) - (rfq.award.amount || 0))}</span>
               </div>
+              {!!rfq.award.unawardedLineIds?.length && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Partial award: {rfq.award.unawardedLineIds.length} item(s) have no quote and remain unawarded. {rfq.lines.filter((line) => rfq.award.unawardedLineIds.includes(line.lineId)).map((line) => line.name).join(' · ')}</p>}
             </Card>
           )}
 

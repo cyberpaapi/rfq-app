@@ -24,12 +24,13 @@ router.get('/', (_req, res) => {
   const t = today()
 
   const awarded = rfqs.filter((r) => r.status === 'Awarded' && r.award && r.award.type !== 'reject')
+  const fullyAwarded = awarded.filter((r) => !r.award.unawardedLineIds?.length)
   const open = rfqs.filter((r) => !CLOSED_STATES.includes(r.status))
   const pendingApproval = rfqs.filter((r) => r.status === 'Pending Approval')
   const expired = rfqs.filter((r) => r.deadline && r.deadline < t && !CLOSED_STATES.includes(r.status))
 
-  const totalBudget = awarded.reduce((a, r) => a + (r.budget || 0), 0)
-  const totalAwarded = awarded.reduce((a, r) => a + awardAmount(r), 0)
+  const totalBudget = fullyAwarded.reduce((a, r) => a + (r.budget || 0), 0)
+  const totalAwarded = fullyAwarded.reduce((a, r) => a + awardAmount(r), 0)
   const savings = Math.max(0, totalBudget - totalAwarded)
 
   // Supplier participation.
@@ -45,7 +46,7 @@ router.get('/', (_req, res) => {
     }
   })
 
-  const savingsByRfq = awarded.map((r) => ({
+  const savingsByRfq = fullyAwarded.map((r) => ({
     id: r.id, title: r.title, budget: r.budget || 0, awarded: awardAmount(r),
     savings: Math.max(0, (r.budget || 0) - awardAmount(r)),
     pct: r.budget ? round(((r.budget - awardAmount(r)) / r.budget) * 100) : 0,

@@ -52,7 +52,7 @@ router.get('/po/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
-  const winners = resolveWinners(rfq, quotes)
+  const winners = resolveWinners(rfq, quotes).filter((winner) => !rfq.award || !!winner.supplierId)
 
   const rows = winners.map(({ line, supplierName, rate }) => ({
     'PO Number': rfq.id,

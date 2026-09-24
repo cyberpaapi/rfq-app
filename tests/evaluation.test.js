@@ -25,10 +25,15 @@ test('full award uses persisted prices and stable supplier IDs', () => {
   assert.equal(result.amount, 40)
   assert.equal(result.supplierId, 'B')
 })
-test('split award rejects empty, missing, duplicate, unknown and unpriced allocations', () => {
+test('split award rejects empty, omitted quoted, duplicate, unknown and unpriced allocations', () => {
   for (const awards of [[], [{ supplierId: 'B', lineIds: ['1'] }], [{ supplierId: 'B', lineIds: ['1', '1', '2'] }], [{ supplierId: 'B', lineIds: ['1', 'x'] }], [{ supplierId: 'A', lineIds: ['1', '2'] }], [{ supplierId: 'x', lineIds: ['1', '2'] }]]) {
     assert.throws(() => validateAward(rfq, quotes, suppliers, { type: 'split', awards }))
   }
+})
+test('split award can leave items without any quote unawarded', () => {
+  const result = validateAward(rfq, [quotes[0]], suppliers, { type: 'split', awards: [{ supplierId: 'A', lineIds: ['1'] }] })
+  assert.equal(result.amount, 2)
+  assert.deepEqual(result.unawardedLineIds, ['2'])
 })
 test('valid split covers every item and recomputes its total', () => {
   const result = validateAward(rfq, quotes, suppliers, { type: 'split', amount: 1, awards: [{ supplierId: 'A', lineIds: ['1'], amount: 1 }, { supplierId: 'B', lineIds: ['2'], amount: 1 }] })
