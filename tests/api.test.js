@@ -132,6 +132,8 @@ test('procurement API regression checks on isolated data', async (t) => {
   await t.test('create RFQ, reject invalid assignments, assign suppliers', async () => {
     const result = await request('/rfqs', { title: 'Regression fixture', lines: [{ name: 'Lamp', qty: 2 }, { name: 'Cable', qty: 3 }] })
     assert.equal(result.status, 201); rfq = result.data
+    assert.match(rfq.creationDate, /^\d{4}-\d{2}-\d{2}$/)
+    assert.equal((await request('/rfqs', { title: 'Bad date', creationDate: '2026-02-30' })).status, 400)
     assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001', type: 'partial', lineIds: [] })).status, 400)
     assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001', type: 'partial', lineIds: ['unknown'] })).status, 400)
     for (const supplierId of ['SUP-001', 'SUP-002']) assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId })).status, 200)
@@ -157,6 +159,7 @@ test('procurement API regression checks on isolated data', async (t) => {
     const portalView = await request(`/rfqs/${mini.id}`, null, 'GET', supplierCookie)
     assert.equal(portalView.status, 200)
     assert.equal(portalView.data.lines.length, 2)
+    assert.equal(portalView.data.creationDate, mini.creationDate)
     assert.equal((await request(`/rfqs/${rfq.id}`, null, 'GET', supplierCookie)).status, 403)
     assert.equal((await request(`/rfqs/${mini.id}/quote`, { supplierId: 'SUP-001', lines: [{ lineId: mini.lines[0].lineId, rate: 7 }] }, 'POST', supplierCookie)).status, 403)
     assert.equal((await request(`/rfqs/${mini.id}/quote`, { supplierId: supplier.data.id, lines: [{ lineId: mini.lines[1].lineId, rate: 9 }] }, 'POST', supplierCookie)).status, 201)
@@ -200,9 +203,10 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal((await request(`/rfqs/${rfq.id}/award`, { supplierId: 'SUP-001', amount: 0 })).status, 400)
   })
   await t.test('blank RFQ rows are skipped and partial split awards reopen on item edits', async () => {
-    const made = await request('/rfqs', { title: 'Blank row fixture', lines: [{ name: '', qty: 1 }, { name: '  ', qty: 1, description: '' }, { name: 'Lamp', qty: 2 }, { name: 'Unquoted cable', qty: 3 }] })
+    const made = await request('/rfqs', { title: 'Blank row fixture', creationDate: '2026-01-15', lines: [{ name: '', qty: 1 }, { name: '  ', qty: 1, description: '' }, { name: 'Lamp', qty: 2 }, { name: 'Unquoted cable', qty: 3 }] })
     assert.equal(made.status, 201)
     const partial = made.data
+    assert.equal(partial.creationDate, '2026-01-15')
     assert.deepEqual(partial.lines.map((line) => line.name), ['Lamp', 'Unquoted cable'])
     assert.equal((await request(`/rfqs/${partial.id}/assign`, { supplierId: 'SUP-001' })).status, 200)
     assert.equal((await request(`/rfqs/${partial.id}/quote`, { supplierId: 'SUP-001', lines: [{ lineId: partial.lines[0].lineId, rate: 7 }] })).status, 201)
@@ -212,6 +216,11 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.deepEqual(awarded.data.award.unawardedLineIds, [partial.lines[1].lineId])
     assert.ok(!(await request('/reports', null, 'GET')).data.savingsByRfq.some((row) => row.id === partial.id))
     assert.equal((await request(`/rfqs/${partial.id}/delivery`, { supplierId: 'SUP-001', deliver: true })).data.status, 'Awarded')
+    const correctedDate = await request(`/rfqs/${partial.id}`, { creationDate: '2026-01-16', createdAt: 1 }, 'PUT')
+    assert.equal(correctedDate.data.status, 'Awarded')
+    assert.equal(correctedDate.data.creationDate, '2026-01-16')
+    assert.equal(correctedDate.data.createdAt, partial.createdAt)
+    assert.equal((await request(`/rfqs/${partial.id}`, { creationDate: '2026-02-30' }, 'PUT')).status, 400)
     const unchanged = await request(`/rfqs/${partial.id}`, { lines: partial.lines }, 'PUT')
     assert.equal(unchanged.data.status, 'Awarded')
     const reopened = await request(`/rfqs/${partial.id}`, { lines: [{ ...partial.lines[0], qty: 4 }, { name: '', qty: 1 }, partial.lines[1], { name: 'New item', qty: 1 }] }, 'PUT')

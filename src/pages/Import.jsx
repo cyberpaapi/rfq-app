@@ -10,6 +10,7 @@ import { Card, Empty } from '../components/ui'
 import DocViewer from '../components/DocViewer'
 import ItemsTable from '../components/ItemsTable'
 import BrandIcon from '../components/BrandIcon'
+import { localToday } from '../../shared/rfqDates'
 
 const iconFor = (name = '') => {
   const e = name.split('.').pop()?.toLowerCase()
@@ -59,6 +60,7 @@ export default function Import() {
   const [error, setError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [creationDate, setCreationDate] = useState(localToday)
 
   const [view, setView] = useState('basic')
   const [verifyOpen, setVerifyOpen] = useState(false)
@@ -134,6 +136,7 @@ export default function Import() {
       const rfq = await Rfqs.create({
         title: docs[0] ? docs[0].name.replace(/\.[^.]+$/, '') : 'Imported RFQ',
         description: docs.length ? `Imported from ${docs.map((d) => d.name).join(', ')}` : '',
+        creationDate,
         lines: rows.filter((r) => r.name.trim()).map((r) => ({ itemId: r.itemId, sku: r.sku || '', name: r.name, spec: r.spec, description: r.description, qty: Number(r.quantity) || 1, uom: r.uom, brand: r.brand || '', model: r.model || '', partNo: r.partNo || '', secondaryRequirements: r.secondaryRequirements || '', remark: r.remark || '', requiredDeliveryDate: r.requiredDeliveryDate || '' })),
       })
       nav(`/assign/${rfq.id}`)
@@ -241,9 +244,10 @@ export default function Import() {
             )}
           </div>
 
-          <div className="mt-5 flex items-center justify-between border-t border-ink-100 pt-4">
+          <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-ink-100 pt-4">
             <p className="text-xs text-ink-400">The <b>Basic view</b> is the source of truth used to create the RFQ. Edits there flow into the new RFQ.</p>
-            <button className="btn-primary" disabled={creating || rows.length === 0} onClick={createRfq}>{creating ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : <>Create RFQ <ArrowRight size={16} /></>}</button>
+            <label className="text-sm font-semibold text-ink-700">RFQ Creation Date<input type="date" required className="input mt-1" value={creationDate} onChange={(event) => setCreationDate(event.target.value)} /></label>
+            <button className="btn-primary" disabled={creating || rows.length === 0 || !creationDate} onClick={createRfq}>{creating ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : <>Create RFQ <ArrowRight size={16} /></>}</button>
           </div>
         </Card>
       )}

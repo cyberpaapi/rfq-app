@@ -96,7 +96,7 @@ export default function Portal() {
       ) : (
         <Card className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div><h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} RFQ items</span></h2>{rfq.description && <p className="mt-1 text-sm text-ink-600">{rfq.description}</p>}{rfq.deadline && <p className="mt-1 text-xs text-ink-500">Response deadline: {rfq.deadline}</p>}</div>
+            <div><h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} RFQ items</span></h2>{rfq.description && <p className="mt-1 text-sm text-ink-600">{rfq.description}</p>}{rfq.creationDate && <p className="mt-1 text-xs text-ink-500">RFQ creation date: {rfq.creationDate}</p>}{rfq.deadline && <p className="mt-1 text-xs text-ink-500">Response deadline: {rfq.deadline}</p>}</div>
             <label className={`btn-primary cursor-pointer ${uploading || !supplierId || !(can('quote.submit') || internalResponder) || !can('ai.use') ? 'pointer-events-none opacity-70' : ''}`}>
               {uploading ? <><Loader2 size={16} className="animate-spin" /> Reading document…</> : <><UploadCloud size={16} /> {alreadyQuoted ? 'Re-upload quote' : 'Upload quote document'}</>}
               <input type="file" hidden disabled={!supplierId || !(can('quote.submit') || internalResponder) || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />

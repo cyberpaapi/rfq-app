@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Download, UploadCloud, Loader2, FileText, PackageCheck, AlertCircle, Store } from 'lucide-react'
 import { Rfqs } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import { rfqCreationDate } from '../../shared/rfqDates'
 
 // Generated response link inside the protected workspace. Supplier-only roles
 // submit through the assigned supplier portal instead.
@@ -34,7 +35,7 @@ export default function RfqRespond() {
         <header className="rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-6 text-white">
           <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> Request for Quotation</div>
           <h1 className="mt-1 text-2xl font-extrabold">{rfq.title}</h1>
-          <p className="mt-1 text-sm text-brand-100">{rfq.id} · {rfq.lines.length} item{rfq.lines.length !== 1 ? 's' : ''} to quote{rfq.deadline ? ` · respond by ${rfq.deadline}` : ''}</p>
+          <p className="mt-1 text-sm text-brand-100">{rfq.id}{rfqCreationDate(rfq) ? ` · Created ${rfqCreationDate(rfq)}` : ''} · {rfq.lines.length} item{rfq.lines.length !== 1 ? 's' : ''} to quote{rfq.deadline ? ` · respond by ${rfq.deadline}` : ''}</p>
         </header>
 
         {result ? (

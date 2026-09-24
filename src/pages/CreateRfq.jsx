@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext'
 import { Lock } from 'lucide-react'
 import { catalogueMatches } from '../../shared/catalogue'
 import BrandIcon from '../components/BrandIcon'
+import { localToday } from '../../shared/rfqDates'
 
 const steps = ['Details', 'Items', 'Suppliers', 'Review']
 
@@ -21,7 +22,7 @@ export default function CreateRfq() {
   const [mode, setMode] = useState(null)
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
-    title: '', description: '', currency: 'USD', deadline: '', validity: '',
+    title: '', description: '', creationDate: localToday(), currency: 'USD', deadline: '', validity: '',
     deliveryLocation: '', paymentTerms: '30 days net', category: '', budget: '',
   })
   const [catalogue, setCatalogue] = useState([])
@@ -109,7 +110,7 @@ export default function CreateRfq() {
   const readyLines = lines.filter((line) => typeof line.name === 'string' && line.name.trim())
 
   const canNext =
-    (step === 0 && form.title) ||
+    (step === 0 && form.title && form.creationDate) ||
     (step === 1 && readyLines.length > 0) ||
     (step === 2 && picked.length > 0) ||
     step === 3
@@ -118,7 +119,7 @@ export default function CreateRfq() {
     setSaving(true); setSaveError('')
     try {
       const rfq = await Rfqs.create({
-        title: form.title, description: form.description, category: form.category,
+        title: form.title, description: form.description, creationDate: form.creationDate, category: form.category,
         currency: form.currency, deadline: form.deadline, validity: form.validity,
         deliveryLocation: form.deliveryLocation, paymentTerms: form.paymentTerms,
         budget: Number(form.budget) || 0,
@@ -203,6 +204,7 @@ export default function CreateRfq() {
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2"><label className="label">RFQ Title *</label><input className="input" value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Landscape Lighting — Phase 2" /></div>
             <div className="sm:col-span-2"><label className="label">Description</label><textarea className="input min-h-24" value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Scope, context and special instructions…" /></div>
+            <div><label className="label">RFQ Creation Date *</label><input type="date" className="input" required value={form.creationDate} onChange={(e) => set('creationDate', e.target.value)} /></div>
             <div><label className="label">Category</label><select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}><option value="">Select category</option>{catalogueCategories.map((c) => <option key={c}>{c}</option>)}</select></div>
             <div><label className="label">Currency</label><select className="input" value={form.currency} onChange={(e) => set('currency', e.target.value)}><option>USD</option><option>INR</option><option>EUR</option></select></div>
             <div><label className="label">Submission Deadline <span className="font-normal lowercase text-ink-400">(optional)</span></label><input type="date" className="input" value={form.deadline} onChange={(e) => set('deadline', e.target.value)} /></div>
@@ -306,7 +308,7 @@ export default function CreateRfq() {
               <p className="text-sm text-ink-500">{form.description || 'No description'}</p>
             </div>
             <div className="grid gap-4 text-sm sm:grid-cols-3">
-              {[['Category', form.category], ['Currency', form.currency], ['Deadline', form.deadline || '—'], ['Validity', form.validity || '—'], ['Delivery', form.deliveryLocation || '—'], ['Payment', form.paymentTerms]].map(([k, v]) => (
+              {[['Creation Date', form.creationDate], ['Category', form.category], ['Currency', form.currency], ['Deadline', form.deadline || '—'], ['Validity', form.validity || '—'], ['Delivery', form.deliveryLocation || '—'], ['Payment', form.paymentTerms]].map(([k, v]) => (
                 <div key={k} className="rounded-xl border border-ink-100 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{k}</p><p className="font-semibold text-ink-800">{v}</p></div>
               ))}
             </div>

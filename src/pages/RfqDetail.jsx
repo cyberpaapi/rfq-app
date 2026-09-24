@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext'
 import { Card, StatusBadge, SectionTitle, Avatar, Empty, Spinner } from '../components/ui'
 import QuoteEditor from '../components/QuoteEditor'
 import { isPriced } from '../../shared/evaluation'
+import { rfqCreationDate } from '../../shared/rfqDates'
 
 function WorkflowTracker({ status }) {
   const idx = WORKFLOW.indexOf(status)
@@ -56,11 +57,14 @@ export default function RfqDetail() {
   const [busy, setBusy] = useState(false)
   const [rating, setRating] = useState(null) // delivery being rated
   const [responseSupplier, setResponseSupplier] = useState('')
+  const [creationDateInput, setCreationDateInput] = useState('')
+  const [dateError, setDateError] = useState('')
 
   const load = useCallback(() => {
     Rfqs.get(id).then(setRfq).catch(() => setRfq(null))
   }, [id])
   useEffect(() => { load() }, [load])
+  useEffect(() => { if (rfq) setCreationDateInput(rfqCreationDate(rfq)) }, [rfq?.id, rfq?.creationDate])
 
   const setStatus = async (status) => {
     setBusy(true)
@@ -68,6 +72,11 @@ export default function RfqDetail() {
   }
   const updateDelivery = async (body) => { setBusy(true); try { await Rfqs.delivery(id, body); load() } finally { setBusy(false) } }
   const submitRating = async ({ stars, note }) => { await Rfqs.delivery(id, { supplierId: rating.supplierId, rate: { stars, note } }); setRating(null); load() }
+  const saveCreationDate = async () => {
+    setBusy(true); setDateError('')
+    try { await Rfqs.update(id, { creationDate: creationDateInput }); load() }
+    catch (error) { setDateError(error.message) } finally { setBusy(false) }
+  }
 
   if (rfq === undefined) return <Card><Spinner label="Loading RFQ…" /></Card>
   if (rfq === null) {
@@ -80,7 +89,7 @@ export default function RfqDetail() {
   }
 
   const responded = new Set((rfq.quotes || []).filter((q) => q.lines?.some(isPriced)).map((q) => q.supplierId))
-  const created = rfq.createdAt ? new Date(rfq.createdAt).toISOString().slice(0, 10) : '—'
+  const created = rfqCreationDate(rfq) || '—'
   const canCancel = ![STATUS.AWARDED, STATUS.CLOSED, STATUS.CANCELLED, STATUS.DRAFT].includes(rfq.status)
 
   return (
@@ -95,7 +104,7 @@ export default function RfqDetail() {
             <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">{rfq.title}</h1>
             <StatusBadge status={rfq.status} />
           </div>
-          <p className="mt-1 text-sm text-ink-500">{rfq.id} · Buyer {rfq.buyer} · Created {created}</p>
+          <p className="mt-1 text-sm text-ink-500">{rfq.id} · Buyer {rfq.buyer} · Creation Date {created}</p>
           <p className="mt-2 max-w-2xl text-sm text-ink-600">{rfq.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -237,6 +246,8 @@ export default function RfqDetail() {
           <Card className="p-5">
             <SectionTitle art="deadline">RFQ Information</SectionTitle>
             <div className="space-y-4">
+              <Meta icon={Calendar} label="RFQ Creation Date" value={created} />
+              {can('rfq.create') && <div className="rounded-lg bg-ink-50 p-3"><label className="label">Correct creation date</label><div className="flex gap-2"><input type="date" className="input" value={creationDateInput} onChange={(event) => setCreationDateInput(event.target.value)} /><button className="btn-outline" disabled={busy || !creationDateInput || creationDateInput === created} onClick={saveCreationDate}>Save</button></div>{dateError && <p role="alert" className="mt-2 text-xs text-rose-700">{dateError}</p>}</div>}
               <Meta icon={Calendar} label="Submission Deadline" value={rfq.deadline} />
               <Meta icon={Calendar} label="Validity Until" value={rfq.validity} />
               <Meta icon={MapPin} label="Delivery Location" value={rfq.deliveryLocation} />

@@ -5,6 +5,7 @@ import { Rfqs, Reports } from '../api/client'
 import { STATUS, fmt } from '../data/mock'
 import { Card, StatusBadge, Empty, Spinner } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
+import { rfqCreationDate } from '../../shared/rfqDates'
 
 const FILTERS = ['All', 'Open', 'Awarded', 'Closed', 'Expired']
 const today = new Date().toISOString().slice(0, 10)
@@ -86,6 +87,7 @@ export default function RfqList() {
                   <th className="px-5 py-3">RFQ</th>
                   <th className="px-5 py-3">Category</th>
                   <th className="px-5 py-3">Buyer</th>
+                  <th className="px-5 py-3">Creation Date</th>
                   <th className="px-5 py-3">Responses</th>
                   <th className="px-5 py-3">Deadline</th>
                   <th className="px-5 py-3 text-right">Budget</th>
@@ -103,6 +105,7 @@ export default function RfqList() {
                     </td>
                     <td className="px-5 py-3.5 text-ink-600">{r.category}</td>
                     <td className="px-5 py-3.5 text-ink-600">{r.buyer}</td>
+                    <td className="px-5 py-3.5 whitespace-nowrap text-ink-600">{rfqCreationDate(r) || '—'}</td>
                     <td className="px-5 py-3.5 text-ink-600">{responded[r.id] ?? 0}/{r.assignments?.length ?? 0}</td>
                     <td className={`px-5 py-3.5 ${r.deadline && r.deadline < today ? 'text-rose-500' : 'text-ink-600'}`}>{r.deadline || '—'}</td>
                     <td className="px-5 py-3.5 text-right font-semibold text-ink-800">{fmt(r.budget)}</td>

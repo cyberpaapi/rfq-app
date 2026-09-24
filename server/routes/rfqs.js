@@ -10,6 +10,7 @@ import { isPriced, validateAward } from '../../shared/evaluation.js'
 import { recordAction } from '../lib/diagnostics.js'
 import { documentDownload } from '../lib/documents.js'
 import { roleCan } from '../../shared/roles.js'
+import { rfqCreationDate, validDate } from '../../shared/rfqDates.js'
 
 const router = Router()
 const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)
@@ -45,7 +46,7 @@ const actor = (req) => req.get('x-user-name') || req.body?.actor || 'System'
 router.get('/', (req, res) => {
   const internal = roleCan(req.accessRole, 'workspace.view')
   const list = store.all('rfqs').filter((r) => internal || r.assignments?.some((a) => a.supplierId === req.supplierId))
-  res.json(list.map((r) => internal ? { ...r, quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
+  res.json(list.map((r) => internal ? { ...r, quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
@@ -57,7 +58,7 @@ router.get('/:id', (req, res) => {
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id).map(stripFile)
   if (!roleCan(req.accessRole, 'workspace.view')) {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
-    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, deadline: rfq.deadline, assignments, lines: rfq.lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId) })
+    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines: rfq.lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId) })
   }
   res.json({ ...rfq, recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
 })
@@ -230,6 +231,7 @@ router.post('/:id/forward-evaluation', (req, res) => {
 router.post('/', (req, res) => {
   const b = req.body || {}
   if (b.status && b.status !== 'Draft') return res.status(400).json({ error: 'Create a draft, then use the publish or award workflow.' })
+  if (b.creationDate !== undefined && !validDate(b.creationDate)) return res.status(400).json({ error: 'Enter a valid RFQ creation date.' })
   if (b.lines !== undefined && !Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
   const lines = withLineIds(b.lines)
   if (lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) return res.status(400).json({ error: 'Every named item needs a positive quantity.' })
@@ -251,6 +253,7 @@ router.post('/', (req, res) => {
     clarifications: [],
     lines,
     assignments: [],
+    creationDate: b.creationDate || new Date().toISOString().slice(0, 10),
     createdAt: Date.now(),
   }
   store.insert('rfqs', rfq)
@@ -263,11 +266,13 @@ router.put('/:id', (req, res) => {
   if (!current) return res.status(404).json({ error: 'rfq not found' })
   const b = { ...req.body }
   if (finalized(current)) {
-    if (b.lines === undefined) return res.status(409).json({ error: 'Only item edits can reopen this finalized RFQ.' })
-    for (const key of Object.keys(b)) if (key !== 'lines') delete b[key]
+    if (b.lines === undefined && b.creationDate === undefined) return res.status(409).json({ error: 'Only item or creation date edits are allowed on this finalized RFQ.' })
+    for (const key of Object.keys(b)) if (key !== 'lines' && key !== 'creationDate') delete b[key]
   }
   // Workflow decisions must go through their validated endpoints.
   for (const key of ['award', 'awardHistory', 'status', 'approvals', 'deliveries', 'assignments', 'recommendation', 'recommendedAt']) delete b[key]
+  delete b.createdAt
+  if (b.creationDate !== undefined && !validDate(b.creationDate)) return res.status(400).json({ error: 'Enter a valid RFQ creation date.' })
   if (b.lines !== undefined) {
     if (!Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
     b.lines = withLineIds(b.lines)
@@ -300,6 +305,7 @@ router.put('/:id', (req, res) => {
   delete b.id
   const updated = store.update('rfqs', req.params.id, b)
   if (!updated) return res.status(404).json({ error: 'not found' })
+  if (b.creationDate && b.creationDate !== current.creationDate) store.logAudit({ rfqId: current.id, user: actor(req), action: 'Changed RFQ creation date', field: 'Creation Date', old: current.creationDate || '', value: b.creationDate })
   res.json(updated)
 })
 
