@@ -152,6 +152,7 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.ok(credentials.data.password.length >= 12)
     const supplierCookie = (await login(credentials.data.username, credentials.data.password)).cookie
     const mini = (await request('/rfqs', { title: 'Partial response fixture', lines: [{ name: 'First item', qty: 1 }, { name: 'Second item', qty: 2 }] })).data
+    assert.ok((await asIntake('/rfqs', null, 'GET')).data.some((item) => item.id === mini.id))
     assert.equal((await request(`/rfqs/${mini.id}/assign`, { supplierId: supplier.data.id, type: 'partial', lineIds: [mini.lines[0].lineId] })).status, 200)
     const portalView = await request(`/rfqs/${mini.id}`, null, 'GET', supplierCookie)
     assert.equal(portalView.status, 200)
@@ -163,6 +164,10 @@ test('procurement API regression checks on isolated data', async (t) => {
     const merged = (await request(`/rfqs/${mini.id}`, null, 'GET')).data.quotes.find((q) => q.supplierId === supplier.data.id)
     assert.equal(merged.lines.length, 2)
     assert.equal((await asIntake(`/rfqs/${mini.id}/quotes/${supplier.data.id}`, { lines: [{ lineId: mini.lines[0].lineId, rate: 6 }] }, 'PUT')).status, 200)
+    const another = (await asIntake('/suppliers', { name: 'Uninvited vendor' })).data
+    assert.equal((await asIntake(`/rfqs/${mini.id}/quote`, { supplierId: another.id, lines: [{ lineId: mini.lines[1].lineId, rate: 11 }] })).status, 201)
+    assert.ok((await request(`/rfqs/${mini.id}`, null, 'GET')).data.assignments.some((item) => item.supplierId === another.id))
+    assert.equal((await asIntake(`/rfqs/${mini.id}/quote-upload?supplierId=${another.id}`, {}, 'POST')).status, 403)
     const reset = await asIntake(`/suppliers/${supplier.data.id}/credentials`)
     assert.equal(reset.status, 200)
     assert.equal(reset.data.username, credentials.data.username)
@@ -180,7 +185,7 @@ test('procurement API regression checks on isolated data', async (t) => {
     const result = await request(`/rfqs/${rfq.id}`, null, 'GET')
     assert.equal(result.data.quotes.length, 1)
     assert.equal(result.data.quotes[0].supplierName, 'A')
-    assert.equal((await request(`/rfqs/${rfq.id}/quote`, { ...body, supplierId: 'SUP-003' })).status, 400)
+    assert.equal((await request(`/rfqs/${rfq.id}/quote`, { ...body, supplierId: 'SUP-unknown' })).status, 400)
   })
   await t.test('award rejects incomplete cheap bids and missing split items', async () => {
     assert.equal((await request(`/rfqs/${rfq.id}/award`, { supplierId: 'SUP-001', amount: 0 })).status, 400)

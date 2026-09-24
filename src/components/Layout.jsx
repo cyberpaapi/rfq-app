@@ -33,7 +33,7 @@ const nav = [
   { to: '/award', label: 'Evaluation & Award', art: 'award', perm: ['rfq.evaluate', 'award.decide', 'approve.hod', 'approve.finance'] },
 
   { section: 'Portal & Admin' },
-  { to: '/supplier', label: 'Supplier Portal', art: 'portal', perm: 'portal.access' },
+  { to: '/supplier', label: 'Supplier Portal', art: 'portal', perm: ['portal.access', 'supplier.response.edit'] },
   { to: '/reports', label: 'Reports', art: 'reports', perm: 'reports.view' },
   { to: '/audit', label: 'Audit & Compliance', art: 'audit', perm: 'audit.view' },
   { to: '/users', label: 'Roles & Users', art: 'accounts', perm: 'users.manage' },
