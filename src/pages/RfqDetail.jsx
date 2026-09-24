@@ -9,6 +9,7 @@ import { WORKFLOW, STATUS, fmt } from '../data/mock'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatusBadge, SectionTitle, Avatar, Empty, Spinner } from '../components/ui'
 import QuoteEditor from '../components/QuoteEditor'
+import { isPriced } from '../../shared/evaluation'
 
 function WorkflowTracker({ status }) {
   const idx = WORKFLOW.indexOf(status)
@@ -78,7 +79,7 @@ export default function RfqDetail() {
     )
   }
 
-  const responded = new Set((rfq.quotes || []).map((q) => q.supplierId))
+  const responded = new Set((rfq.quotes || []).filter((q) => q.lines?.some(isPriced)).map((q) => q.supplierId))
   const created = rfq.createdAt ? new Date(rfq.createdAt).toISOString().slice(0, 10) : '—'
   const canCancel = ![STATUS.AWARDED, STATUS.CLOSED, STATUS.CANCELLED, STATUS.DRAFT].includes(rfq.status)
 

@@ -158,7 +158,7 @@ router.get('/comparison/:rfqId', (req, res) => {
       row[`Quality ${s.name}`] = l?.qualityScore ?? ''
       row[`Notes ${s.name}`] = l?.specNotes || l?.remark || ''
       if (rate > 0 && rate < bestRate) { bestRate = rate; bestRateSup = s.name }
-      if (l?.qualityScore != null && l.qualityScore > bestQ) { bestQ = l.qualityScore; bestQSup = s.name }
+      if (rate > 0 && l?.qualityScore != null && l.qualityScore > bestQ) { bestQ = l.qualityScore; bestQSup = s.name }
     }
     row['Lower Price'] = bestRateSup
     row['Quality Winner'] = bestQSup

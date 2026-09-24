@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { quoteCoverage } from '../../shared/evaluation'
+import { isPriced, quoteCoverage } from '../../shared/evaluation'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { GitCompareArrows, Loader2, ChevronDown, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
@@ -41,11 +41,11 @@ export default function Compare() {
     }).catch((e) => setError(e.message))
   }, [requestedId])
 
-  const load = () => rfqId && Rfqs.get(rfqId).then((r) => { setRfq(r); setQuotes(r.quotes || []) })
+  const load = () => rfqId && Rfqs.get(rfqId).then((r) => { setRfq(r); setQuotes((r.quotes || []).filter((q) => q.lines?.some(isPriced))) })
   useEffect(() => {
     let active = true
     setRfq(null); setQuotes([]); setError('')
-    if (rfqId) Rfqs.get(rfqId).then((r) => { if (active) { setRfq(r); setQuotes(r.quotes || []) } }).catch((e) => { if (active) setError(e.message) })
+    if (rfqId) Rfqs.get(rfqId).then((r) => { if (active) { setRfq(r); setQuotes((r.quotes || []).filter((q) => q.lines?.some(isPriced))) } }).catch((e) => { if (active) setError(e.message) })
     return () => { active = false }
   }, [rfqId]) // eslint-disable-line
 
@@ -67,7 +67,7 @@ export default function Compare() {
   const rows = useMemo(() => (rfq?.lines || []).map((line) => {
     const cells = supIds.map((sid) => {
       const l = qline(sid, line.lineId)
-      const rate = l ? Number(l.rate) || 0 : null
+      const rate = isPriced(l) ? Number(l.rate) : null
       return { sid, l, rate, total: rate != null ? rate * (Number(line.qty) || 0) : null, quality: l?.qualityScore ?? null }
     })
     const priced = cells.filter((c) => c.rate != null && c.rate > 0)

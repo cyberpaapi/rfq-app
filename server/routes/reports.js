@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import * as store from '../store.js'
+import { isPriced } from '../../shared/evaluation.js'
 
 const router = Router()
 
@@ -34,7 +35,7 @@ router.get('/', (_req, res) => {
   // Supplier participation.
   const participation = suppliers.map((s) => {
     const invited = rfqs.filter((r) => r.assignments?.some((a) => a.supplierId === s.id)).length
-    const responded = new Set(quotes.filter((q) => q.supplierId === s.id).map((q) => q.rfqId)).size
+    const responded = new Set(quotes.filter((q) => q.supplierId === s.id && q.lines?.some(isPriced)).map((q) => q.rfqId)).size
     const won = awarded.filter((r) => r.award?.supplierId === s.id || r.award?.splits?.some((x) => x.supplierId === s.id)).length
     return {
       id: s.id, name: s.name,
@@ -63,7 +64,7 @@ router.get('/', (_req, res) => {
   const summaryRows = rfqs.map((r) => ({
     id: r.id, title: r.title, status: r.status, buyer: r.buyer,
     invited: r.assignments?.length || 0,
-    responded: new Set(quotes.filter((q) => q.rfqId === r.id).map((q) => q.supplierId)).size,
+    responded: new Set(quotes.filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).map((q) => q.supplierId)).size,
     budget: r.budget || 0,
   }))
 

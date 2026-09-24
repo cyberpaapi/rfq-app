@@ -45,7 +45,7 @@ const actor = (req) => req.get('x-user-name') || req.body?.actor || 'System'
 router.get('/', (req, res) => {
   const internal = roleCan(req.accessRole, 'workspace.view')
   const list = store.all('rfqs').filter((r) => internal || r.assignments?.some((a) => a.supplierId === req.supplierId))
-  res.json(list.map((r) => internal ? { ...r, quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id).length } : { id: r.id, title: r.title, status: r.status, assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
+  res.json(list.map((r) => internal ? { ...r, quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
@@ -350,11 +350,14 @@ router.post('/:id/quote', (req, res) => {
   const supplier = store.find('suppliers', b.supplierId)
   const assignment = rfq.assignments?.find((a) => a.supplierId === b.supplierId)
   if (!supplier) return res.status(400).json({ error: 'Select a valid supplier.' })
-  if (!assignment && !roleCan(req.accessRole, 'supplier.response.edit')) return res.status(400).json({ error: 'Supplier must be assigned to this RFQ.' })
-  if (!Array.isArray(b.lines) || !b.lines.length || b.lines.some((l) => !rfq.lines.some((item) => item.lineId === l.lineId) || !isPriced(l)) || new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Quote must contain unique RFQ items with positive prices.' })
+  if (!assignment) return res.status(400).json({ error: 'Supplier must be assigned to this RFQ.' })
+  const replaceLines = b.replaceLines === true
+  if (!Array.isArray(b.lines) || (!b.lines.length && !replaceLines) || b.lines.some((l) => !rfq.lines.some((item) => item.lineId === l.lineId) || !Number.isFinite(Number(l.rate)) || Number(l.rate) < 0) || new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Quote must contain unique RFQ items with non-negative prices.' })
   const existing = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
+  const priced = b.lines.filter(isPriced)
+  if (!priced.length && !existing) return res.status(400).json({ error: 'Enter at least one positive price before submitting.' })
   const changed = new Map(b.lines.map((l) => [l.lineId, l]))
-  const lines = [...(existing?.lines || []).filter((l) => !changed.has(l.lineId)), ...b.lines.map((l) => {
+  const lines = [...(replaceLines ? [] : (existing?.lines || []).filter((l) => !changed.has(l.lineId))), ...priced.map((l) => {
     const item = rfq.lines.find((r) => r.lineId === l.lineId)
     const old = existing?.lines?.find((r) => r.lineId === l.lineId) || {}
     return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate),
@@ -371,25 +374,28 @@ router.post('/:id/quote', (req, res) => {
     notes: b.notes ?? existing?.notes ?? '',
     submittedAt: Date.now(),
   }
-  if (!assignment) {
-    store.update('rfqs', rfq.id, { assignments: [...(rfq.assignments || []), { id: newId('ASG'), supplierId: supplier.id, supplierName: supplier.name, type: 'full', lineIds: rfq.lines.map((line) => line.lineId), createdAt: Date.now() }] })
-    store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Linked supplier through response', field: 'Suppliers', value: supplier.name })
+  if (!lines.length) {
+    store.remove('quotes', existing.id)
+    invalidateRecommendation(rfq.id)
+    if (rfq.status === 'Responses Received' && !store.all('quotes').some((q) => q.rfqId === rfq.id && q.lines?.some(isPriced))) store.update('rfqs', rfq.id, { status: 'Published' })
+    store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Cleared supplier quotation', field: 'Quotes', value: supplier.name })
+    return res.json({ supplierId: supplier.id, lines: [] })
   }
   if (existing) store.update('quotes', existing.id, quote)
   else store.insert('quotes', quote)
   invalidateRecommendation(rfq.id)
   // First response moves a Published RFQ forward.
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
-  store.logAudit({ rfqId: rfq.id, user: actor(req), action: existing ? 'Updated supplier quotation' : 'Submitted supplier quotation', field: 'Quotes', old: '', value: `${supplier.name}: ${b.lines.length} item(s)` })
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: existing ? 'Updated supplier quotation' : 'Submitted supplier quotation', field: 'Quotes', old: '', value: `${supplier.name}: ${lines.length} quoted item(s)` })
   store.notify({ type: 'response', title: `New quote from ${quote.supplierName} on ${rfq.title}`, rfqId: rfq.id })
   res.status(existing ? 200 : 201).json(stripFile(quote))
 })
 
 // Shared: parse a quote DOCUMENT (currency-aware, USD), match it onto the RFQ's
 // lines (by name + quantity, order as a hint) and save it as the supplier's quote.
-async function buildQuoteFromFile(rfq, supplier, file, allowUnassigned = false) {
+async function buildQuoteFromFile(rfq, supplier, file) {
   const assignment = rfq.assignments.find((a) => a.supplierId === supplier.id)
-  if (!assignment && !allowUnassigned) throw new Error('Supplier must be assigned to this RFQ.')
+  if (!assignment) throw new Error('Supplier must be assigned to this RFQ.')
   const extraction = await extractDocument({ buffer: file.buffer, filename: file.originalname })
   const { items: quoteLines, engine, currency, rate, rateSource, usedUsdColumn } = await extractQuote(extraction)
   const { map, engine: matchEngine } = await matchQuoteLines(rfq.lines, quoteLines)
@@ -410,14 +416,11 @@ async function buildQuoteFromFile(rfq, supplier, file, allowUnassigned = false) 
   })
 
   if (finalized(store.find('rfqs', rfq.id))) throw new Error('This RFQ was finalized while the document was processing.')
-  if (!assignment) {
-    store.update('rfqs', rfq.id, { assignments: [...(rfq.assignments || []), { id: newId('ASG'), supplierId: supplier.id, supplierName: supplier.name, type: 'full', lineIds: rfq.lines.map((line) => line.lineId), createdAt: Date.now() }] })
-    store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Linked supplier through response', field: 'Suppliers', value: supplier.name })
-  }
   invalidateRecommendation(rfq.id)
   const previous = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
   // A partial document must not erase prices entered manually for other items.
-  const mergedLines = [...(previous?.lines || []).filter((old) => !lines.some((line) => line.lineId === old.lineId && isPriced(line))),
+  const matchedIds = new Set(rfq.lines.filter((_, i) => map[i] >= 0).map((line) => line.lineId))
+  const mergedLines = [...(previous?.lines || []).filter((old) => !matchedIds.has(old.lineId)),
     ...lines.filter(isPriced)]
   const quoteData = {
     ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
@@ -452,9 +455,8 @@ router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'file is required' })
     const supplier = store.find('suppliers', req.query.supplierId || req.body?.supplierId)
     if (!supplier) return res.status(400).json({ error: 'supplierId is required' })
-    const internalResponder = roleCan(req.accessRole, 'supplier.response.edit') && roleCan(req.accessRole, 'workspace.view')
-    if (!rfq.assignments.some((a) => a.supplierId === supplier.id) && !internalResponder) return res.status(403).json({ error: 'Supplier is not assigned to this RFQ.' })
-    res.status(201).json(await buildQuoteFromFile(rfq, supplier, req.file, internalResponder))
+    if (!rfq.assignments.some((a) => a.supplierId === supplier.id)) return res.status(403).json({ error: 'Supplier is not assigned to this RFQ.' })
+    res.status(201).json(await buildQuoteFromFile(rfq, supplier, req.file))
   } catch (err) {
     console.error('[quote-upload] error:', err)
     res.status(500).json({ error: err.message })

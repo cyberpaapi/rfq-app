@@ -4,13 +4,13 @@ import { Rfqs, Suppliers } from '../api/client'
 import { Card, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import QuoteEditor from '../components/QuoteEditor'
+import { isPriced } from '../../shared/evaluation'
 
 export default function Portal() {
   const { can, current } = useAuth()
   const internalResponder = can('supplier.response.edit') && can('workspace.view')
   const [suppliers, setSuppliers] = useState(null)
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
-  const supplierId = internalResponder ? selectedSupplierId : current.supplierId || ''
   const [rfqs, setRfqs] = useState([])
   const [rfqId, setRfqId] = useState('')
   const [rfq, setRfq] = useState(null)
@@ -19,6 +19,8 @@ export default function Portal() {
   const [error, setError] = useState(null)
   const [clarifyMsg, setClarifyMsg] = useState('')
   const [clarifySent, setClarifySent] = useState(false)
+  const assignedSuppliers = (rfq?.assignments || []).map((assignment) => suppliers?.find((item) => item.id === assignment.supplierId)).filter(Boolean)
+  const supplierId = internalResponder ? assignedSuppliers.some((item) => item.id === selectedSupplierId) ? selectedSupplierId : '' : current.supplierId || ''
 
   useEffect(() => { Suppliers.list().then(setSuppliers).catch((e) => { setError(e.message); setSuppliers([]) }) }, [])
 
@@ -41,11 +43,11 @@ export default function Portal() {
   }, [rfqId])
 
   useEffect(() => {
-    if (internalResponder && rfq) setSelectedSupplierId(rfq.assignments?.[0]?.supplierId || '')
-  }, [internalResponder, rfq?.id])
+    if (internalResponder && rfq) setSelectedSupplierId((previous) => rfq.assignments?.some((a) => a.supplierId === previous) ? previous : rfq.assignments?.[0]?.supplierId || '')
+  }, [internalResponder, rfq?.id, rfq?.assignments])
 
   const myLines = rfq?.lines || []
-  const alreadyQuoted = rfq?.quotes?.some((q) => q.supplierId === supplierId)
+  const alreadyQuoted = rfq?.quotes?.some((q) => q.supplierId === supplierId && q.lines?.some(isPriced))
 
   const upload = async (file) => {
     if (!file || !supplierId) return
@@ -74,7 +76,7 @@ export default function Portal() {
         <div>
           <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> {internalResponder ? 'Supplier response entry' : 'Supplier Portal'}</div>
           <h1 className="mt-1 text-2xl font-extrabold">{internalResponder ? 'Enter a supplier response' : `Welcome, ${supplier.name}`}</h1>
-          <p className="mt-1 text-sm text-brand-100">{internalResponder ? 'Choose any RFQ and supplier, then enter item prices or upload their quote.' : 'Quote individual RFQ items or upload a quotation document.'}</p>
+          <p className="mt-1 text-sm text-brand-100">{internalResponder ? 'Choose an RFQ and one of its selected suppliers, then enter item prices or upload their quote.' : 'Quote individual RFQ items or upload a quotation document.'}</p>
         </div>
       </div>
 
@@ -83,7 +85,7 @@ export default function Portal() {
         {rfqs.length === 0 ? (
           <p className="py-2 text-sm text-ink-400">{internalResponder ? 'No RFQs available yet.' : 'No RFQs assigned to you yet.'}</p>
         ) : (
-          <select value={rfqId} onChange={(e) => setRfqId(e.target.value)} className="input">
+          <select value={rfqId} onChange={(e) => { setRfq(null); setSelectedSupplierId(''); setRfqId(e.target.value) }} className="input">
             {rfqs.map((r) => <option key={r.id} value={r.id}>{r.id} — {r.title}</option>)}
           </select>
         )}
@@ -101,7 +103,7 @@ export default function Portal() {
             </label>
           </div>
 
-          {internalResponder && <label className="mb-4 block max-w-md"><span className="label">Respond on behalf of supplier</span><select className="input" value={supplierId} onChange={(e) => { setSelectedSupplierId(e.target.value); setResult(null) }}><option value="">Select supplier</option>{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span className="mt-1 block text-xs text-ink-500">If this supplier was not invited, saving a response links them to this RFQ.</span></label>}
+          {internalResponder && <label className="mb-4 block max-w-md"><span className="label">Respond on behalf of supplier</span><select className="input" value={supplierId} onChange={(e) => { setSelectedSupplierId(e.target.value); setResult(null) }} disabled={!assignedSuppliers.length}><option value="">Select supplier</option>{assignedSuppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span className="mt-1 block text-xs text-ink-500">{assignedSuppliers.length ? 'Only suppliers selected for this RFQ are shown.' : 'No suppliers selected for this RFQ. Assign a supplier before entering a response.'}</span></label>}
 
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
           <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>
