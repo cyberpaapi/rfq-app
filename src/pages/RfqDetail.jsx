@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Calendar, MapPin, CreditCard, Wallet, Check, GitCompareArrows,
-  Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck, Truck, Star, Pencil,
+  Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck, Truck, Star, Pencil, Download,
 } from 'lucide-react'
 import { Rfqs } from '../api/client'
 import { WORKFLOW, STATUS, fmt } from '../data/mock'
@@ -108,6 +108,7 @@ export default function RfqDetail() {
           <p className="mt-2 max-w-2xl text-sm text-ink-600">{rfq.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={16} /> Download RFQ</a>
           {can('rfq.create') && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline"><Pencil size={16} /> Edit items</Link>}
           {can('rfq.evaluate') && <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>}
           {rfq.status === STATUS.DRAFT && can('rfq.publish') && (

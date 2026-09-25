@@ -28,6 +28,8 @@ test('read-only, disabled, AI and export restrictions are applied by API policy'
   assert.equal(roleCan(role, 'ai.use'), false)
   assert.equal(checkAccess({ ...role, enabled: false }, 'GET', '/rfqs'), false)
   assert.equal(checkAccess({ ...role, permissions: ['workspace.view'] }, 'GET', '/export/comparison/x'), false)
+  assert.equal(checkAccess({ ...role, permissions: ['workspace.view'] }, 'GET', '/export/rfq-items/x'), true)
+  assert.equal(checkAccess({ ...role, permissions: ['portal.access'] }, 'GET', '/export/rfq-items/x'), true)
   assert.equal(checkAccess({ ...role, readOnly: false, permissions: ['workspace.view', 'rfq.evaluate'] }, 'POST', '/rfqs/x/recommend'), false)
   assert.equal(checkAccess({ ...role, readOnly: false }, 'POST', '/roles'), false)
   const creator = { id: 'creator', enabled: true, permissions: ['workspace.view', 'rfq.create'] }

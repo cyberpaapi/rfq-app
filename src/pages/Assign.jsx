@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Search, Star, BadgeCheck, Check, Users, Send, Split, Package, X, ChevronDown,
-  SlidersHorizontal, Trophy, Pencil, Plus, Trash2, Loader2, ListPlus, Link2,
+  SlidersHorizontal, Trophy, Pencil, Plus, Trash2, Loader2, ListPlus, Link2, Download,
 } from 'lucide-react'
 import { Rfqs, Suppliers, Tags, weightedScore } from '../api/client'
 import { Card, Avatar, Spinner, Tag, Empty, StatusBadge, Drawer } from '../components/ui'
@@ -142,6 +142,7 @@ export default function Assign() {
           <p className="mt-1 text-sm text-ink-500">Pick items on the left, choose suppliers on the right. Send the whole RFQ or a partial set.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={16} /> Download RFQ</a>
           <button onClick={generateLink} className="btn-outline" title="Create a public link suppliers can open to download the RFQ and upload their response"><Link2 size={16} /> Generate RFQ link</button>
           <RfqPicker rfqs={rfqs} current={rfq} onPick={(rid) => { if (!busy) { setRfq(null); nav(`/assign/${rid}`) } }} />
         </div>

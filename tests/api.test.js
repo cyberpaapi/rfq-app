@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
 import { hashPassword } from '../server/lib/auth.js'
+import * as XLSX from 'xlsx'
 
 test('procurement API regression checks on isolated data', async (t) => {
   const data = await mkdtemp(join(tmpdir(), 'opro-regression-'))
@@ -198,6 +199,19 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal((await request(`/rfqs/${mini.id}/assign`, { supplierId: another.id })).status, 200)
     assert.equal((await asIntake(`/rfqs/${mini.id}/quote`, { supplierId: another.id, lines: [{ lineId: mini.lines[1].lineId, rate: 11 }] })).status, 201)
     assert.equal((await asIntake(`/rfqs/${mini.id}/quote-upload?supplierId=${another.id}`, {}, 'POST')).status, 403)
+    const downloadRfq = (id, cookie) => fetch(`http://localhost:${port}/api/export/rfq-items/${id}`, { headers: { Cookie: cookie } })
+    assert.equal((await downloadRfq(rfq.id, supplierCookie)).status, 403)
+    assert.equal((await downloadRfq(mini.id, cookie)).status, 200)
+    const changedItems = await request(`/rfqs/${mini.id}`, { lines: [mini.lines[0], { name: 'Replacement item', qty: 4, secondaryRequirements: 'Weatherproof', requiredDeliveryDate: '2026-11-15' }] }, 'PUT')
+    assert.equal(changedItems.status, 200)
+    const downloaded = await downloadRfq(mini.id, supplierCookie)
+    assert.equal(downloaded.status, 200)
+    assert.match(downloaded.headers.get('content-disposition'), /attachment.*RFQ\.xlsx/)
+    const workbook = XLSX.read(Buffer.from(await downloaded.arrayBuffer()), { type: 'buffer' })
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets['RFQ Items'])
+    assert.deepEqual(rows.map((row) => row['Item Name']), ['First item', 'Replacement item'])
+    assert.equal(rows[1]['Secondary Requirements'], 'Weatherproof')
+    assert.equal(rows[1]['Required Delivery Date'], '2026-11-15')
     const reset = await asIntake(`/suppliers/${supplier.data.id}/credentials`)
     assert.equal(reset.status, 200)
     assert.equal(reset.data.username, credentials.data.username)

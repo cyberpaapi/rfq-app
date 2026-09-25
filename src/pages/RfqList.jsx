@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, SlidersHorizontal, FileText } from 'lucide-react'
+import { Search, Plus, SlidersHorizontal, FileText, Download } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
 import { STATUS, fmt } from '../data/mock'
 import { Card, StatusBadge, Empty, Spinner } from '../components/ui'
@@ -92,6 +92,7 @@ export default function RfqList() {
                   <th className="px-5 py-3">Deadline</th>
                   <th className="px-5 py-3 text-right">Budget</th>
                   <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3">RFQ file</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-50">
@@ -110,6 +111,7 @@ export default function RfqList() {
                     <td className={`px-5 py-3.5 ${r.deadline && r.deadline < today ? 'text-rose-500' : 'text-ink-600'}`}>{r.deadline || '—'}</td>
                     <td className="px-5 py-3.5 text-right font-semibold text-ink-800">{fmt(r.budget)}</td>
                     <td className="px-5 py-3.5"><StatusBadge status={r.status} /></td>
+                    <td className="px-5 py-3.5"><a href={Rfqs.exportRfqItemsUrl(r.id)} className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-brand-700 hover:underline" aria-label={`Download ${r.id} RFQ`}><Download size={14} /> Download</a></td>
                   </tr>
                 ))}
               </tbody>

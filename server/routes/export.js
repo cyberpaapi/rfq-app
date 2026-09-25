@@ -124,12 +124,14 @@ router.get('/rfq-items/:rfqId', (req, res) => {
     'S.No': i + 1,
     'Item Name': l.name,
     'Specification': [l.spec, l.description].filter(Boolean).join(' — '),
+    'Secondary Requirements': l.secondaryRequirements || '',
     'Brand': l.brand || '',
     'Model No': l.model || '',
     'Part No': l.partNo || '',
     'Quantity': l.qty,
     'Unit': l.uom,
     'Remark': l.remark || '',
+    'Required Delivery Date': l.requiredDeliveryDate || '',
     'Unit Price': '',
   }))
   const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Item Name': '', 'Quantity': '', 'Unit Price': '' }])

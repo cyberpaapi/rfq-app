@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, FileUp, Loader2, LogOut, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Download, FileUp, Loader2, LogOut, RefreshCw } from 'lucide-react'
 import { Rfqs } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import QuoteEditor from '../components/QuoteEditor'
@@ -69,10 +69,13 @@ export default function SupplierUpload() {
           <label className="mt-6 block"><span className="label">Assigned RFQ</span><select className="input" value={rfqId} onChange={(event) => { setRfqId(event.target.value); setReceipt(''); setRfq(null) }}>{rfqs.map((item) => <option key={item.id} value={item.id}>{item.id} — {item.title}</option>)}</select></label>
           {rfq && <>
             <div className="mt-5 rounded-xl border border-ink-100 bg-ink-50 p-4"><h2 className="font-bold">{rfq.title}</h2><p className="mt-1 text-sm text-ink-500">{rfq.lines.length} item{rfq.lines.length === 1 ? '' : 's'}{rfq.deadline ? ` · Deadline: ${rfq.deadline}` : ''}</p>{rfq.description && <p className="mt-2 text-sm text-ink-600">{rfq.description}</p>}</div>
-            <label className={`btn-primary mt-5 inline-flex cursor-pointer ${uploading || finalized ? 'pointer-events-none opacity-60' : ''}`}>
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+            <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={17} /> Download RFQ (.xlsx)</a>
+            <label className={`btn-primary inline-flex cursor-pointer ${uploading || finalized ? 'pointer-events-none opacity-60' : ''}`}>
               {uploading ? <><Loader2 size={17} className="animate-spin" /> Uploading file…</> : <><FileUp size={17} /> Upload response file</>}
               <input type="file" className="sr-only" disabled={uploading || finalized} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; upload(file) }} />
             </label>
+            </div>
             <p className="mt-2 text-xs text-ink-500">PDF, spreadsheet, CSV, text, or image · up to 50 MB. Keep this page open until “uploaded” appears.</p>
             {receipt && <p role="status" className="mt-4 flex gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={18} className="shrink-0" /> {receipt}</p>}
             {latestJob && <div className="mt-4 rounded-xl border border-ink-100 p-4 text-sm"><div className="flex items-start justify-between gap-2"><div><b>Latest upload: {latestJob.fileName}</b><p className="mt-1 capitalize text-ink-600">Status: {latestJob.status}</p></div><button type="button" className="btn-outline py-1.5 text-xs" onClick={refresh}><RefreshCw size={13} /> Refresh</button></div>

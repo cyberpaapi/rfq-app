@@ -13,6 +13,7 @@ export function requiredPermissions(method, path, body = {}) {
   if (path === '/uploads/prepare') return requiredPermissions('POST', body.target || '/invalid', {})
   if (path.startsWith('/logs') || path.startsWith('/audit')) return ['audit.view']
   if (path.startsWith('/reports')) return ['reports.view']
+  if (/^\/export\/rfq-items\/[^/]+$/.test(path)) return ['workspace.view|portal.access']
   if (path.startsWith('/export/')) return ['data.export', 'workspace.view']
   if (path === '/reset') return ['users.manage']
   if (path.startsWith('/notifications')) return ['workspace.view']
@@ -58,6 +59,11 @@ export function accessControl(req, res, next) {
   req.accessRole = role
   req.headers['x-user-name'] = role.username
   req.supplierId = role.supplierId || ''
+  const rfqExport = /^\/export\/rfq-items\/([^/]+)\/?$/i.exec(path)
+  if (rfqExport && !roleCan(role, 'workspace.view')) {
+    const rfq = store.find('rfqs', rfqExport[1])
+    if (!rfq?.assignments?.some((assignment) => assignment.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to your supplier.' })
+  }
   const targetPath = target
   if (!roleCan(role, 'workspace.view') && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath)) {
     const id = targetPath.split('/')[2]
