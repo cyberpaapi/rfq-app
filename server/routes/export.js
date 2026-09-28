@@ -156,7 +156,8 @@ router.get('/comparison/:rfqId', (req, res) => {
       const total = rate * (Number(line.qty) || 0)
       row[`${s.name} Rate`] = rate || ''
       row[`${s.name} Total`] = total || ''
-      row[`ETA ${s.name}`] = l?.eta || ''
+      row[`Forecasted ETA ${s.name}`] = l?.eta || ''
+      row[`Ready to Send ${s.name}`] = l?.readyToSendDate || ''
       row[`Quality ${s.name}`] = l?.qualityScore ?? ''
       row[`Notes ${s.name}`] = l?.specNotes || l?.remark || ''
       if (rate > 0 && rate < bestRate) { bestRate = rate; bestRateSup = s.name }

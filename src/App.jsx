@@ -18,6 +18,7 @@ import Reports from './pages/Reports'
 import Audit from './pages/Audit'
 import Users from './pages/Users'
 import RfqRespond from './pages/RfqRespond'
+import Currencies from './pages/Currencies'
 
 export default function App() {
   return (
@@ -46,9 +47,9 @@ function Home() {
 }
 
 function SupplierGateway() {
-  const { can } = useAuth()
+  const { can, current } = useAuth()
   if (!can('portal.access') && !can('supplier.response.edit')) return <Guard permission="portal.access" />
-  if (can('workspace.view')) return <Layout><Portal /></Layout>
+  if (can('workspace.view') || !current.supplierId) return <Layout><Portal /></Layout>
   return <SupplierUpload />
 }
 
@@ -71,6 +72,7 @@ function AppShell() {
           <Route path="/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />
           <Route path="/audit" element={<Guard permission="audit.view"><Audit /></Guard>} />
           <Route path="/users" element={<Guard permission="users.manage"><Users /></Guard>} />
+          <Route path="/currencies" element={<Guard permission="users.manage"><Currencies /></Guard>} />
           <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

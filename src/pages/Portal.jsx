@@ -8,7 +8,8 @@ import { isPriced } from '../../shared/evaluation'
 
 export default function Portal() {
   const { can, current } = useAuth()
-  const internalResponder = can('supplier.response.edit') && can('workspace.view')
+  const internalResponder = can('workspace.view') || !current.supplierId
+  const mayQuote = can('quote.submit') || can('supplier.response.edit')
   const [suppliers, setSuppliers] = useState(null)
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [rfqs, setRfqs] = useState([])
@@ -75,8 +76,8 @@ export default function Portal() {
       <div className="flex items-center justify-between rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-6 text-white">
         <div>
           <div className="flex items-center gap-2 text-brand-100"><Store size={18} /> {internalResponder ? 'Supplier response entry' : 'Supplier Portal'}</div>
-          <h1 className="mt-1 text-2xl font-extrabold">{internalResponder ? 'Enter a supplier response' : `Welcome, ${supplier.name}`}</h1>
-          <p className="mt-1 text-sm text-brand-100">{internalResponder ? 'Choose an RFQ and one of its selected suppliers, then enter item prices or upload their quote.' : 'Quote individual RFQ items or upload a quotation document.'}</p>
+          <h1 className="mt-1 text-2xl font-extrabold">{internalResponder ? mayQuote ? 'Enter a supplier response' : 'Review supplier RFQs' : `Welcome, ${supplier.name}`}</h1>
+          <p className="mt-1 text-sm text-brand-100">{internalResponder ? mayQuote ? 'Choose an RFQ and one of its selected suppliers, then enter item prices or upload their quote.' : 'View available RFQs and their selected suppliers.' : 'Quote individual RFQ items or upload a quotation document.'}</p>
         </div>
       </div>
 
@@ -99,10 +100,10 @@ export default function Portal() {
             <div><h2 className="font-bold text-ink-900">{rfq.title} <span className="text-sm font-normal text-ink-400">· {myLines.length} RFQ items</span></h2>{rfq.description && <p className="mt-1 text-sm text-ink-600">{rfq.description}</p>}{rfq.creationDate && <p className="mt-1 text-xs text-ink-500">RFQ creation date: {rfq.creationDate}</p>}{rfq.deadline && <p className="mt-1 text-xs text-ink-500">Response deadline: {rfq.deadline}</p>}</div>
             <div className="flex flex-wrap items-center gap-2">
             <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={16} /> Download RFQ</a>
-            <label className={`btn-primary cursor-pointer ${uploading || !supplierId || !(can('quote.submit') || internalResponder) || !can('ai.use') ? 'pointer-events-none opacity-70' : ''}`}>
+            {mayQuote && <label className={`btn-primary cursor-pointer ${uploading || !supplierId || !can('ai.use') ? 'pointer-events-none opacity-70' : ''}`}>
               {uploading ? <><Loader2 size={16} className="animate-spin" /> Reading document…</> : <><UploadCloud size={16} /> {alreadyQuoted ? 'Re-upload quote' : 'Upload quote document'}</>}
-              <input type="file" hidden disabled={!supplierId || !(can('quote.submit') || internalResponder) || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
-            </label>
+              <input type="file" hidden disabled={!supplierId || !mayQuote || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+            </label>}
             </div>
           </div>
 
@@ -143,7 +144,7 @@ export default function Portal() {
             </table>
           </div>
 
-          {(can('quote.submit') || internalResponder) && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} />}</div>}
+          {mayQuote && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} />}</div>}
 
           {result && (
             <div className="mt-4 space-y-2">

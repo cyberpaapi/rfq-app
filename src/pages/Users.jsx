@@ -35,7 +35,6 @@ export default function Users() {
   const customRoles = roles.filter((role) => role.id !== 'admin')
   const groups = [...new Set(Object.values(PERMISSIONS).map((permission) => permission.group))].filter((group) => group !== 'Administration')
   const selectedRole = roles.find((role) => role.id === userForm?.roleId)
-  const needsSupplier = selectedRole?.permissions.some((permission) => ['portal.access', 'quote.submit'].includes(permission))
   const openRole = (role = null) => { setRoleForm(role ? { ...role } : freshRole()); setUserForm(null); setError(''); setNotice('') }
   const openUser = (user = null) => { setUserForm(user ? { ...user, password: '' } : { ...freshUser(), roleId: customRoles[0]?.id || '' }); setRoleForm(null); setShowPassword(false); setError(''); setNotice(''); setCreatedCredential(null) }
   const setRole = (key, value) => setRoleForm((previous) => ({ ...previous, [key]: value }))
@@ -66,7 +65,6 @@ export default function Users() {
     if (users.some((user) => user.id !== userForm.id && user.username === username)) { setError('That username is already in use.'); return }
     if (!selectedRole || selectedRole.id === 'admin') { setError('Select a role for this user.'); return }
     if ((!userForm.id || userForm.password) && userForm.password.length < 12) { setError('Use a password of at least 12 characters.'); return }
-    if (needsSupplier && !userForm.supplierId) { setError('Select a supplier profile for this role.'); return }
     setSaving(true); setError('')
     try {
       const result = await saveUser(userForm)
@@ -138,7 +136,7 @@ export default function Users() {
       {selectedRole && <p className="rounded-xl bg-brand-50 p-3 text-sm text-brand-800">This user inherits {selectedRole.permissions.length} permissions from <strong>{selectedRole.label}</strong>. Edit the role to update all its users.</p>}
       <div><label className="label">{userForm.id ? 'New password (leave blank to keep current)' : 'Initial password *'}</label><div className="flex gap-2"><input className="input min-w-0 flex-1" type={showPassword ? 'text' : 'password'} minLength={12} maxLength={128} autoComplete="new-password" value={userForm.password} onChange={(e) => setUser('password', e.target.value)} /><button type="button" className="btn-outline px-3" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button><button type="button" className="btn-outline" onClick={() => { setUser('password', makePassword()); setShowPassword(true) }}>Generate</button></div><p className="mt-1 text-xs text-ink-500">At least 12 characters. Administrator can view the saved password again from the user card.</p></div>
       <div className="space-y-3 rounded-xl bg-ink-50 p-4"><h3 className="font-semibold">User restrictions</h3><label className="flex gap-2 text-sm"><input type="checkbox" checked={userForm.enabled} onChange={(e) => setUser('enabled', e.target.checked)} /> User enabled</label><label className="flex gap-2 text-sm"><input type="checkbox" checked={userForm.readOnly} onChange={(e) => setUser('readOnly', e.target.checked)} /> Read-only for this user</label></div>
-      <label className="block"><span className="label">Supplier profile {needsSupplier ? '*' : '(optional)'}</span><select className="input" value={userForm.supplierId} onChange={(e) => setUser('supplierId', e.target.value)}><option value="">Select supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select><p className="mt-1 text-xs text-ink-500">Required for supplier portal roles. A linked user can submit quotes only for this supplier.</p></label>
+      <label className="block"><span className="label">Supplier profile (optional)</span><select className="input" value={userForm.supplierId} onChange={(e) => setUser('supplierId', e.target.value)}><option value="">No supplier — internal portal access</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select><p className="mt-1 text-xs text-ink-500">Without a profile, portal users can see all RFQs their role permits. A linked supplier login sees only assigned RFQs.</p></label>
     </div><div className="border-t px-6 py-4">{error && <p role="alert" className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{error}</p>}<div className="flex justify-end gap-2"><button type="button" className="btn-outline" disabled={saving} onClick={() => setUserForm(null)}>Cancel</button><button className="btn-primary" disabled={saving}>{saving ? 'Saving…' : userForm.id ? 'Save user' : 'Add user'}</button></div></div></form></div>}
   </div>
 }

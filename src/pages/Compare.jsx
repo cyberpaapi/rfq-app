@@ -178,7 +178,7 @@ export default function Compare() {
                       <th className="px-3 py-2">#</th>
                       <th className="px-3 py-2" style={{ minWidth: 300 }}>Item</th>
                       <th className="px-3 py-2 text-right">Qty</th>
-                      {supIds.map((sid) => <th key={sid} className="border-l border-ink-100 px-3 py-2 text-center" colSpan={4}>{nameOf(sid)}</th>)}
+                      {supIds.map((sid) => <th key={sid} className="border-l border-ink-100 px-3 py-2 text-center" colSpan={5}>{nameOf(sid)}</th>)}
                       <th className="border-l border-ink-100 px-3 py-2" style={{ minWidth: 280 }}>Spec Notes Comparison</th>
                       <th className="border-l border-ink-100 px-3 py-2">Lower Price</th>
                       <th className="px-3 py-2">Quality Winner</th>
@@ -192,7 +192,8 @@ export default function Compare() {
                         <Fragment key={sid}>
                           <th className="border-l border-ink-100 px-3 py-1.5 text-right">Rate</th>
                           <th className="px-3 py-1.5 text-right">Total</th>
-                          <th className="px-3 py-1.5">ETA</th>
+                          <th className="px-3 py-1.5">Ready to send</th>
+                          <th className="px-3 py-1.5">Forecasted ETA</th>
                           <th className="px-3 py-1.5 text-right">Qual</th>
                         </Fragment>
                       ))}
@@ -216,6 +217,7 @@ export default function Compare() {
                                 <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="number" min="0" step="0.01" value={c.l?.rate ?? ''} onChange={(e) => setCell(sid, row.line.lineId, { rate: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { rate: e.target.value })} className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                               </td>
                               <td className={`px-2 py-2 text-right font-semibold ${win ? 'bg-emerald-50 text-emerald-700' : 'text-ink-700'}`}>{c.total != null ? fmt(c.total) : '—'}</td>
+                              <td className="px-2 py-2"><input aria-label={`Ready to send date for ${row.line.name} from ${nameOf(sid)}`} disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="date" value={c.l?.readyToSendDate || ''} onChange={(e) => setCell(sid, row.line.lineId, { readyToSendDate: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { readyToSendDate: e.target.value })} className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" /></td>
                               <td className={`px-2 py-2 ${row.fastestEta === sid ? 'bg-sky-50' : ''}`}>
                                 <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="date" value={c.l?.eta || ''} onChange={(e) => setCell(sid, row.line.lineId, { eta: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { eta: e.target.value })} className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                                 {!c.l?.eta && <span className="text-xs text-ink-300">—</span>}
@@ -255,7 +257,7 @@ export default function Compare() {
                       {totalsBySup.map((t) => (
                         <Fragment key={t.sid}>
                           <td className="border-l border-ink-100 px-2 py-2 text-right" colSpan={2}>{fmt(t.total)}{!quoteCoverage(rfq.lines, quotes.find((q) => q.supplierId === t.sid)).complete && <span className="block text-xs font-normal text-amber-700">Incomplete quote</span>}</td>
-                          <td colSpan={2}></td>
+                          <td colSpan={3}></td>
                         </Fragment>
                       ))}
                       <td className="border-l border-ink-100 px-3 py-2 text-emerald-700" colSpan={6}>Best total: {bestTotal == null ? 'No complete quote' : nameOf(completeTotals.find((t) => t.total === bestTotal)?.sid)}</td>

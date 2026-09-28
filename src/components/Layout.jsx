@@ -37,6 +37,7 @@ const nav = [
   { to: '/reports', label: 'Reports', art: 'reports', perm: 'reports.view' },
   { to: '/audit', label: 'Audit & Compliance', art: 'audit', perm: 'audit.view' },
   { to: '/users', label: 'Roles & Users', art: 'accounts', perm: 'users.manage' },
+  { to: '/currencies', label: 'Currencies', art: 'cost', perm: 'users.manage' },
 ]
 
 function Sidebar({ onNavigate }) {

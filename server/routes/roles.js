@@ -6,7 +6,6 @@ const router = Router()
 const auditValue = (role) => JSON.stringify({ label: role.label, enabled: role.enabled, readOnly: role.readOnly, permissions: role.permissions })
 const publicRole = ({ id, label, desc, enabled, readOnly, permissions, color, version, builtIn }) =>
   ({ id, label, desc, enabled, readOnly, permissions, color, version, builtIn })
-const needsSupplier = (role) => role.permissions.some((permission) => permission === 'portal.access' || permission === 'quote.submit')
 
 router.get('/', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store')
@@ -32,9 +31,6 @@ router.put('/:id', (req, res) => {
   if (req.body.version !== role.version) return res.status(409).json({ error: 'This role changed elsewhere. Reload before saving.' })
   try {
     const patch = validateRole(req.body || {}, store.getRoles(), role)
-    if (needsSupplier(patch) && store.getUsers().some((user) => user.roleId === role.id && !user.supplierId)) {
-      throw new Error('Assign a supplier profile to every user in this role before enabling supplier portal permissions.')
-    }
     const old = auditValue(role)
     const result = store.update('roles', role.id, { ...patch, version: role.version + 1 })
     store.logAudit({ user: 'Administrator', action: 'Updated role permissions and restrictions', field: role.id, old, value: auditValue(result) })

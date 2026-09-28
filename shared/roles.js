@@ -51,6 +51,5 @@ export function validateUser(input, users, roles, existing) {
   const role = roles.find((item) => item.id === roleId && item.id !== 'admin')
   if (!role) throw new Error('Select a valid role for this user.')
   const supplierId = String(input.supplierId || '')
-  if (role.permissions.some((permission) => permission === 'portal.access' || permission === 'quote.submit') && !supplierId) throw new Error('Select the supplier profile for portal access.')
   return { username, roleId, enabled: input.enabled !== false, readOnly: input.readOnly === true, supplierId }
 }

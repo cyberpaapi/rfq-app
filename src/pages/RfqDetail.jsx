@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Calendar, MapPin, CreditCard, Wallet, Check, GitCompareArrows,
+  ArrowLeft, Calendar, MapPin, CreditCard, Check, GitCompareArrows,
   Paperclip, Send, Ban, Users, Package, MessageSquare, ShieldCheck, Truck, Star, Pencil, Download,
 } from 'lucide-react'
 import { Rfqs } from '../api/client'
@@ -250,10 +250,8 @@ export default function RfqDetail() {
               <Meta icon={Calendar} label="RFQ Creation Date" value={created} />
               {can('rfq.create') && <div className="rounded-lg bg-ink-50 p-3"><label className="label">Correct creation date</label><div className="flex gap-2"><input type="date" className="input" value={creationDateInput} onChange={(event) => setCreationDateInput(event.target.value)} /><button className="btn-outline" disabled={busy || !creationDateInput || creationDateInput === created} onClick={saveCreationDate}>Save</button></div>{dateError && <p role="alert" className="mt-2 text-xs text-rose-700">{dateError}</p>}</div>}
               <Meta icon={Calendar} label="Submission Deadline" value={rfq.deadline} />
-              <Meta icon={Calendar} label="Validity Until" value={rfq.validity} />
               <Meta icon={MapPin} label="Delivery Location" value={rfq.deliveryLocation} />
               <Meta icon={CreditCard} label="Payment Terms" value={rfq.paymentTerms} />
-              <Meta icon={Wallet} label="Budget Price" value={fmt(rfq.budget)} />
             </div>
           </Card>
 
@@ -279,10 +277,6 @@ export default function RfqDetail() {
               <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3">
                 <span className="text-sm text-ink-500">Awarded Price</span>
                 <span className="font-bold text-emerald-700">{fmt(rfq.award.amount)}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-xl bg-white p-3">
-                <span className="text-sm text-ink-500">{rfq.award.unawardedLineIds?.length ? 'Budget less awarded amount' : 'Savings vs budget'}</span>
-                <span className="font-bold text-emerald-700">{fmt((rfq.budget || 0) - (rfq.award.amount || 0))}</span>
               </div>
               {!!rfq.award.unawardedLineIds?.length && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Partial award: {rfq.award.unawardedLineIds.length} item(s) have no quote and remain unawarded. {rfq.lines.filter((line) => rfq.award.unawardedLineIds.includes(line.lineId)).map((line) => line.name).join(' · ')}</p>}
             </Card>

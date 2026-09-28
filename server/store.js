@@ -8,6 +8,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { createCloudMiddleware, createPostgresDatabase } from './lib/cloud-store.js'
 import { deriveBaseName, addTagUnique, normalize } from './lib/tags.js'
 import { seedRoles, seedUsers } from '../shared/roles.js'
+import { seedCurrencies } from '../shared/currencies.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.RFQ_DATA_DIR || join(__dirname, 'data')
@@ -24,6 +25,7 @@ const seed = () => ({
   users: seedUsers(process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin'),
   sessions: [],
   loginAttempts: [],
+  currencies: seedCurrencies(),
   suppliers: [
     { id: 'SUP-001', name: 'A', portalProfile: true, category: 'Electronics', email: 'sales@a.co', phone: '+91 98200 11111', location: 'Mumbai, IN', qualified: true, rating: 4.7, scores: { price: 78, quality: 92, delivery: 85 }, ratings: [], previouslyInvited: true, tags: ['Wall Light', 'Spike Light', 'LED'], notes: 'Preferred lighting vendor.', createdAt: now },
     { id: 'SUP-002', name: 'B', portalProfile: true, category: 'Electronics', email: 'rfq@b.com', phone: '+91 99000 22222', location: 'Pune, IN', qualified: true, rating: 4.4, scores: { price: 88, quality: 80, delivery: 76 }, ratings: [], previouslyInvited: true, tags: ['Foot Light', 'Flood Light', 'LED'], notes: '', createdAt: now },
@@ -245,6 +247,7 @@ function ensure() {
     for (const c of ['suppliers', 'items', 'rfqs', 'quotes', 'audit', 'notifications', 'tags', 'sessions', 'loginAttempts']) {
       if (!currentDb()[c]) currentDb()[c] = []
     }
+    if (!currentDb().currencies) currentDb().currencies = seedCurrencies()
   } else {
     db = seed()
     flush()
@@ -268,6 +271,11 @@ export function reset() {
 
 // ---- generic collection access -------------------------------------------
 export const all = (coll) => { ensure(); return currentDb()[coll] }
+export function getCurrencies() {
+  ensure()
+  if (!currentDb().currencies) { currentDb().currencies = seedCurrencies(); flush() }
+  return currentDb().currencies
+}
 export function getRoles() {
   ensure()
   if (currentDb().authVersion !== 3) {

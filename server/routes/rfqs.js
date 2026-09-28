@@ -55,7 +55,7 @@ const publicQuoteJob = (job) => ({ id: job.id, supplierId: job.supplierId, statu
   error: job.error || '', result: job.result || null })
 
 router.get('/', (req, res) => {
-  const internal = roleCan(req.accessRole, 'workspace.view')
+  const internal = roleCan(req.accessRole, 'workspace.view') || (!req.supplierId && (roleCan(req.accessRole, 'portal.access') || roleCan(req.accessRole, 'supplier.response.edit')))
   const list = store.all('rfqs').filter((r) => internal || r.assignments?.some((a) => a.supplierId === req.supplierId))
   res.json(list.map((r) => internal ? { ...r, quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
@@ -67,7 +67,7 @@ router.get('/:id', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id).map(stripFile)
-  if (!roleCan(req.accessRole, 'workspace.view')) {
+  if (!roleCan(req.accessRole, 'workspace.view') && req.supplierId) {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
     return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines: rfq.lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
   }
@@ -104,6 +104,7 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
     if (!rfq.lines.some((l) => l.lineId === line.lineId)) return res.status(400).json({ error: 'Unknown RFQ item.' })
     if (line.rate !== undefined && (!Number.isFinite(Number(line.rate)) || Number(line.rate) < 0)) return res.status(400).json({ error: 'Rate must be a non-negative number.' })
     if (line.qualityScore != null && line.qualityScore !== '' && (!Number.isFinite(Number(line.qualityScore)) || Number(line.qualityScore) < 0 || Number(line.qualityScore) > 99)) return res.status(400).json({ error: 'Quality must be between 0 and 99.' })
+    if (line.readyToSendDate !== undefined && line.readyToSendDate !== '' && !validDate(line.readyToSendDate)) return res.status(400).json({ error: 'Ready to send date must be a valid date.' })
   }
   const patchById = Object.fromEntries(lines.map((l) => [l.lineId, l]))
   const existing = new Set(quote.lines.map((l) => l.lineId))
@@ -113,6 +114,7 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
     const merged = { ...l }
     if (p.rate !== undefined) merged.rate = Number(p.rate) || 0
     if (p.eta !== undefined) merged.eta = p.eta
+    if (p.readyToSendDate !== undefined) merged.readyToSendDate = p.readyToSendDate
     if (p.specNotes !== undefined) merged.specNotes = p.specNotes
     if (p.remark !== undefined) merged.remark = p.remark
     if (p.qualityScore !== undefined) merged.qualityScore = p.qualityScore === '' || p.qualityScore == null ? null : Math.max(0, Math.min(99, Number(p.qualityScore)))
@@ -241,6 +243,7 @@ router.post('/:id/forward-evaluation', (req, res) => {
 
 router.post('/', (req, res) => {
   const b = req.body || {}
+  if (!store.getCurrencies().some((currency) => currency.code === (b.currency || 'USD') && currency.active)) return res.status(400).json({ error: 'Select an active currency.' })
   if (b.status && b.status !== 'Draft') return res.status(400).json({ error: 'Create a draft, then use the publish or award workflow.' })
   if (b.creationDate !== undefined && !validDate(b.creationDate)) return res.status(400).json({ error: 'Enter a valid RFQ creation date.' })
   if (b.lines !== undefined && !Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
@@ -276,6 +279,7 @@ router.put('/:id', (req, res) => {
   const current = store.find('rfqs', req.params.id)
   if (!current) return res.status(404).json({ error: 'rfq not found' })
   const b = { ...req.body }
+  if (b.currency !== undefined && b.currency !== current.currency && !store.getCurrencies().some((currency) => currency.code === b.currency && currency.active)) return res.status(400).json({ error: 'Select an active currency.' })
   if (finalized(current)) {
     if (b.lines === undefined && b.creationDate === undefined) return res.status(409).json({ error: 'Only item or creation date edits are allowed on this finalized RFQ.' })
     for (const key of Object.keys(b)) if (key !== 'lines' && key !== 'creationDate') delete b[key]
@@ -397,6 +401,7 @@ router.post('/:id/quote', (req, res) => {
   if (!assignment) return res.status(400).json({ error: 'Supplier must be assigned to this RFQ.' })
   const replaceLines = b.replaceLines === true
   if (!Array.isArray(b.lines) || (!b.lines.length && !replaceLines) || b.lines.some((l) => !rfq.lines.some((item) => item.lineId === l.lineId) || !Number.isFinite(Number(l.rate)) || Number(l.rate) < 0) || new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Quote must contain unique RFQ items with non-negative prices.' })
+  if (b.lines.some((line) => line.readyToSendDate !== undefined && line.readyToSendDate !== '' && !validDate(line.readyToSendDate))) return res.status(400).json({ error: 'Ready to send date must be a valid date.' })
   const existing = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
   const priced = b.lines.filter(isPriced)
   if (!priced.length && !existing) return res.status(400).json({ error: 'Enter at least one positive price before submitting.' })
@@ -406,7 +411,7 @@ router.post('/:id/quote', (req, res) => {
     const old = existing?.lines?.find((r) => r.lineId === l.lineId) || {}
     return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate),
       leadTime: l.leadTime ?? old.leadTime ?? '', warranty: l.warranty ?? old.warranty ?? '',
-      eta: l.eta ?? old.eta ?? '', remark: l.remark ?? old.remark ?? '' }
+      eta: l.eta ?? old.eta ?? '', readyToSendDate: l.readyToSendDate ?? old.readyToSendDate ?? '', remark: l.remark ?? old.remark ?? '' }
   })]
   const quote = {
     ...(existing || {}), id: existing?.id || newId('QTE'),
@@ -448,7 +453,7 @@ async function parseQuoteFromFile(rfq, file) {
     return {
       lineId: line.lineId, name: line.name, qty: line.qty,
       rate: q ? Number(q.unitPrice) || 0 : 0,
-      leadTime: q?.leadTime || '', warranty: q?.warranty || '', eta: q?.eta || '',
+      leadTime: q?.leadTime || '', warranty: q?.warranty || '', eta: q?.eta || '', readyToSendDate: '',
       remark: q?.remark || (q ? '' : 'no match found in document'),
       // raw vendor description (compared against the RFQ description during scoring)
       description: q?.description || '',
@@ -475,7 +480,7 @@ function saveParsedQuote(rfqId, supplierId, file, parsed) {
   // A partial document must not erase prices entered manually for other items.
   const matchedIds = new Set(parsed.matchedIds)
   const mergedLines = [...(previous?.lines || []).filter((old) => !matchedIds.has(old.lineId)),
-    ...parsed.lines.filter(isPriced)]
+    ...parsed.lines.filter(isPriced).map((line) => ({ ...line, readyToSendDate: previous?.lines?.find((old) => old.lineId === line.lineId)?.readyToSendDate || '' }))]
   const quoteData = {
     ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
     lines: mergedLines, paymentTerms: previous?.paymentTerms || '', notes: `Parsed from ${file.originalname}`, source: file.originalname,

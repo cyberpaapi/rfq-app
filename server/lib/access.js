@@ -9,25 +9,26 @@ export function requiredPermissions(method, path, body = {}) {
   if (path === '/roles') return ['users.manage']
   if (path.startsWith('/roles/')) return ['users.manage']
   if (path === '/users' || path.startsWith('/users/')) return ['users.manage']
+  if (path === '/currencies' || path.startsWith('/currencies/')) return method === 'GET' ? ['workspace.view|users.manage'] : ['users.manage']
   if (path === '/logs/events' || path === '/uploads/config') return []
   if (path === '/uploads/prepare') return requiredPermissions('POST', body.target || '/invalid', {})
   if (path.startsWith('/logs') || path.startsWith('/audit')) return ['audit.view']
   if (path.startsWith('/reports')) return ['reports.view']
-  if (/^\/export\/rfq-items\/[^/]+$/.test(path)) return ['workspace.view|portal.access']
+  if (/^\/export\/rfq-items\/[^/]+$/.test(path)) return ['workspace.view|portal.access|supplier.response.edit']
   if (path.startsWith('/export/')) return ['data.export', 'workspace.view']
   if (path === '/reset') return ['users.manage']
   if (path.startsWith('/notifications')) return ['workspace.view']
   if (path.startsWith('/ingest')) return ['rfq.create', 'ai.use']
   if (path.startsWith('/items') || path === '/tags') return method === 'GET' ? ['workspace.view'] : ['rfq.create']
   if (path.startsWith('/suppliers')) {
-    if (method === 'GET') return ['workspace.view|portal.access']
+    if (method === 'GET') return ['workspace.view|portal.access|supplier.response.edit']
     if (path.endsWith('/credentials')) return ['supplier.create']
     if (path === '/suppliers' && method === 'POST') return ['supplier.create|supplier.manage']
     if (path === '/suppliers/upload') return ['supplier.create|supplier.manage']
     return ['supplier.manage']
   }
   if (path.startsWith('/rfqs')) {
-    if (method === 'GET') return path.includes('/quote-file/') ? ['data.export', 'workspace.view'] : ['workspace.view|portal.access']
+    if (method === 'GET') return path.includes('/quote-file/') ? ['data.export', 'workspace.view'] : ['workspace.view|portal.access|supplier.response.edit']
     if (path.endsWith('/quote-upload-queue') || /\/quote-jobs\/[^/]+\/retry$/.test(path)) return ['quote.submit|supplier.response.edit']
     if (path.endsWith('/quote-upload')) return ['quote.submit|supplier.response.edit', 'ai.use']
     if (path.endsWith('/respond')) return ['quote.submit', 'ai.use']
@@ -60,12 +61,12 @@ export function accessControl(req, res, next) {
   req.headers['x-user-name'] = role.username
   req.supplierId = role.supplierId || ''
   const rfqExport = /^\/export\/rfq-items\/([^/]+)\/?$/i.exec(path)
-  if (rfqExport && !roleCan(role, 'workspace.view')) {
+  if (rfqExport && !roleCan(role, 'workspace.view') && req.supplierId) {
     const rfq = store.find('rfqs', rfqExport[1])
     if (!rfq?.assignments?.some((assignment) => assignment.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to your supplier.' })
   }
   const targetPath = target
-  if (!roleCan(role, 'workspace.view') && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath)) {
+  if (!roleCan(role, 'workspace.view') && req.supplierId && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath)) {
     const id = targetPath.split('/')[2]
     const rfq = store.find('rfqs', id)
     if (!rfq?.assignments?.some((a) => a.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to your supplier.' })

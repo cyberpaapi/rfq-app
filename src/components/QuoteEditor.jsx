@@ -11,11 +11,13 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
   const [notice, setNotice] = useState('')
   const [dirty, setDirty] = useState(false)
   const [bulkEta, setBulkEta] = useState('')
+  const [bulkReadyDate, setBulkReadyDate] = useState('')
 
   useEffect(() => {
-    setValues(Object.fromEntries((quote?.lines || []).map((line) => [line.lineId, { rate: String(line.rate || ''), eta: line.eta || '', remark: line.remark || '' }])))
+    setValues(Object.fromEntries((quote?.lines || []).map((line) => [line.lineId, { rate: String(line.rate || ''), eta: line.eta || '', readyToSendDate: line.readyToSendDate || '', remark: line.remark || '' }])))
     setSelected((quote?.lines || []).filter(isPriced).map((line) => line.lineId))
     setBulkEta('')
+    setBulkReadyDate('')
     setDirty(false); setError('')
   }, [rfq.id, supplierId, quote?.submittedAt])
 
@@ -38,6 +40,12 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
     setNotice('')
     setValues((previous) => Object.fromEntries(rfq.lines.map((line) => [line.lineId, { ...previous[line.lineId], eta: bulkEta }])))
   }
+  const applyReadyDateToAll = () => {
+    if (!bulkReadyDate) return
+    setDirty(true)
+    setNotice('')
+    setValues((previous) => Object.fromEntries(rfq.lines.map((line) => [line.lineId, { ...previous[line.lineId], readyToSendDate: bulkReadyDate }])))
+  }
   const submit = async (event) => {
     event.preventDefault(); setError(''); setNotice('')
     const lines = rfq.lines.filter((line) => selected.includes(line.lineId) && isPriced(values[line.lineId])).map((line) => ({ lineId: line.lineId, ...values[line.lineId] }))
@@ -56,17 +64,20 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
     <p className="text-sm text-ink-500">Only checked items with a positive unit price count as quoted. Unchecking a previously quoted item removes its price from comparison and awards.</p>
     <div className="flex flex-wrap items-end gap-3">
       <button type="button" className="btn-outline py-1.5 text-xs" onClick={toggleAll} disabled={disabled || saving || !rfq.lines.length}>{selected.length === rfq.lines.length ? 'Clear all' : 'Select all items'}</button>
-      <label className="block"><span className="label">Same ETA for all items</span><input aria-label="ETA for all items" type="date" className="input w-40" value={bulkEta} onChange={(event) => setBulkEta(event.target.value)} disabled={disabled || saving} /></label>
+      <label className="block"><span className="label">Same ready to send date</span><input aria-label="Ready to send date for all items" type="date" className="input w-40" value={bulkReadyDate} onChange={(event) => setBulkReadyDate(event.target.value)} disabled={disabled || saving} /></label>
+      <button type="button" className="btn-outline py-1.5 text-xs" onClick={applyReadyDateToAll} disabled={disabled || saving || !bulkReadyDate || !rfq.lines.length}>Apply ready date to all</button>
+      <label className="block"><span className="label">Same forecasted ETA</span><input aria-label="Forecasted ETA for all items" type="date" className="input w-40" value={bulkEta} onChange={(event) => setBulkEta(event.target.value)} disabled={disabled || saving} /></label>
       <button type="button" className="btn-outline py-1.5 text-xs" onClick={applyEtaToAll} disabled={disabled || saving || !bulkEta || !rfq.lines.length}>Apply ETA to all</button>
     </div>
-    <div className="overflow-x-auto rounded-xl border border-ink-100"><table className="w-full min-w-[720px] text-sm">
-      <thead><tr className="bg-ink-50 text-left text-xs font-bold uppercase text-ink-600"><th className="px-3 py-2">Quote</th><th className="px-3 py-2">Item and specification</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2">Unit price (USD)</th><th className="px-3 py-2">ETA</th><th className="px-3 py-2">Note</th></tr></thead>
+    <div className="overflow-x-auto rounded-xl border border-ink-100"><table className="w-full min-w-[900px] text-sm">
+      <thead><tr className="bg-ink-50 text-left text-xs font-bold uppercase text-ink-600"><th className="px-3 py-2">Quote</th><th className="px-3 py-2">Item and specification</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2">Unit price (USD)</th><th className="px-3 py-2">Ready to send</th><th className="px-3 py-2">Forecasted ETA</th><th className="px-3 py-2">Note</th></tr></thead>
       <tbody className="divide-y divide-ink-100">{rfq.lines.map((line) => <tr key={line.lineId}>
         <td className="px-3 py-2"><input type="checkbox" aria-label={`Quote ${line.name}`} checked={selected.includes(line.lineId)} onChange={() => toggle(line.lineId)} disabled={disabled || saving} /></td>
         <td className="px-3 py-2"><p className="font-semibold text-ink-800">{line.name}</p><p className="text-xs text-ink-500">{[line.spec, line.description].filter(Boolean).join(' · ')}</p></td>
         <td className="px-3 py-2 text-right">{line.qty} {line.uom}</td>
         <td className="px-3 py-2"><input aria-label={`Unit price for ${line.name}`} type="number" min="0" step="any" className="input w-28" value={values[line.lineId]?.rate || ''} onChange={(e) => update(line.lineId, 'rate', e.target.value)} disabled={disabled || saving} /></td>
-        <td className="px-3 py-2"><input aria-label={`ETA for ${line.name}`} type="date" className="input w-40" value={values[line.lineId]?.eta || ''} onChange={(e) => update(line.lineId, 'eta', e.target.value)} disabled={disabled || saving} /></td>
+        <td className="px-3 py-2"><input aria-label={`Ready to send date for ${line.name}`} type="date" className="input w-40" value={values[line.lineId]?.readyToSendDate || ''} onChange={(e) => update(line.lineId, 'readyToSendDate', e.target.value)} disabled={disabled || saving} /></td>
+        <td className="px-3 py-2"><input aria-label={`Forecasted ETA for ${line.name}`} type="date" className="input w-40" value={values[line.lineId]?.eta || ''} onChange={(e) => update(line.lineId, 'eta', e.target.value)} disabled={disabled || saving} /></td>
         <td className="px-3 py-2"><input aria-label={`Note for ${line.name}`} className="input w-40" value={values[line.lineId]?.remark || ''} onChange={(e) => update(line.lineId, 'remark', e.target.value)} disabled={disabled || saving} /></td>
       </tr>)}</tbody>
     </table></div>

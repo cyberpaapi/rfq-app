@@ -63,6 +63,11 @@ export const Auth = {
   login: (username, password) => api.post('/auth/login', { username, password }),
   logout: () => api.post('/auth/logout'),
 }
+export const Currencies = {
+  list: () => api.get('/currencies'),
+  create: (body) => api.post('/currencies', body),
+  update: (code, body) => api.put(`/currencies/${code}`, body),
+}
 
 // Small hook-free helpers
 export const Suppliers = {

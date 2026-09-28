@@ -4,7 +4,7 @@ import {
   ArrowLeft, ArrowRight, Check, FileSpreadsheet, Search,
   Plus, Trash2, ChevronRight, Star, Upload, Loader2,
 } from 'lucide-react'
-import { Items, Suppliers, Rfqs, Ingest } from '../api/client'
+import { Items, Suppliers, Rfqs, Ingest, Currencies } from '../api/client'
 import { categories } from '../data/mock'
 import { Card, Avatar, Empty, Spinner } from '../components/ui'
 import ItemsTable from '../components/ItemsTable'
@@ -22,9 +22,10 @@ export default function CreateRfq() {
   const [mode, setMode] = useState(null)
   const [step, setStep] = useState(0)
   const [form, setForm] = useState({
-    title: '', description: '', creationDate: localToday(), currency: 'USD', deadline: '', validity: '',
-    deliveryLocation: '', paymentTerms: '30 days net', category: '', budget: '',
+    title: '', description: '', creationDate: localToday(), currency: 'USD', deadline: '',
+    deliveryLocation: '', paymentTerms: '30 days net', category: '',
   })
+  const [currencyOptions, setCurrencyOptions] = useState([{ code: 'USD', name: 'US dollar', active: true }])
   const [catalogue, setCatalogue] = useState([])
   const [catalogueCategories, setCatalogueCategories] = useState([])
   const [catalogueError, setCatalogueError] = useState('')
@@ -45,6 +46,7 @@ export default function CreateRfq() {
   useEffect(() => {
     Items.meta().then((meta) => setCatalogueCategories(meta.categories)).catch((e) => setCatalogueError(e.message))
     Suppliers.list().then(setSuppliers)
+    Currencies.list().then((items) => setCurrencyOptions(items.filter((item) => item.active))).catch((error) => setCatalogueError(error.message))
   }, [])
 
   useEffect(() => {
@@ -120,9 +122,8 @@ export default function CreateRfq() {
     try {
       const rfq = await Rfqs.create({
         title: form.title, description: form.description, creationDate: form.creationDate, category: form.category,
-        currency: form.currency, deadline: form.deadline, validity: form.validity,
+        currency: form.currency, deadline: form.deadline,
         deliveryLocation: form.deliveryLocation, paymentTerms: form.paymentTerms,
-        budget: Number(form.budget) || 0,
         lines: readyLines.map((l) => ({
           itemId: l.itemId, sku: l.sku || '', name: l.name, spec: l.spec, description: l.description,
           qty: Number(l.quantity) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
@@ -206,12 +207,10 @@ export default function CreateRfq() {
             <div className="sm:col-span-2"><label className="label">Description</label><textarea className="input min-h-24" value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Scope, context and special instructions…" /></div>
             <div><label className="label">RFQ Creation Date *</label><input type="date" className="input" required value={form.creationDate} onChange={(e) => set('creationDate', e.target.value)} /></div>
             <div><label className="label">Category</label><select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}><option value="">Select category</option>{catalogueCategories.map((c) => <option key={c}>{c}</option>)}</select></div>
-            <div><label className="label">Currency</label><select className="input" value={form.currency} onChange={(e) => set('currency', e.target.value)}><option>USD</option><option>INR</option><option>EUR</option></select></div>
+            <div><label className="label">Currency</label><select className="input" value={form.currency} onChange={(e) => set('currency', e.target.value)}>{currencyOptions.map((currency) => <option key={currency.code} value={currency.code}>{currency.code} — {currency.name}{currency.code === 'USD' ? ' (base)' : ''}</option>)}</select></div>
             <div><label className="label">Submission Deadline <span className="font-normal lowercase text-ink-400">(optional)</span></label><input type="date" className="input" value={form.deadline} onChange={(e) => set('deadline', e.target.value)} /></div>
-            <div><label className="label">Validity Period</label><input type="date" className="input" value={form.validity} onChange={(e) => set('validity', e.target.value)} /></div>
             <div><label className="label">Delivery Location</label><input className="input" value={form.deliveryLocation} onChange={(e) => set('deliveryLocation', e.target.value)} placeholder="OPRO Warehouse, Pune" /></div>
             <div><label className="label">Payment Terms</label><input className="input" value={form.paymentTerms} onChange={(e) => set('paymentTerms', e.target.value)} /></div>
-            <div><label className="label">Budget (optional)</label><input type="number" min="0" className="input" value={form.budget} onChange={(e) => set('budget', e.target.value)} placeholder="9500" /></div>
             <div className="sm:col-span-2">
               <label className="label">Supporting Documents</label>
               <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink-200 py-6 text-sm text-ink-400 hover:bg-ink-50">
@@ -308,7 +307,7 @@ export default function CreateRfq() {
               <p className="text-sm text-ink-500">{form.description || 'No description'}</p>
             </div>
             <div className="grid gap-4 text-sm sm:grid-cols-3">
-              {[['Creation Date', form.creationDate], ['Category', form.category], ['Currency', form.currency], ['Deadline', form.deadline || '—'], ['Validity', form.validity || '—'], ['Delivery', form.deliveryLocation || '—'], ['Payment', form.paymentTerms]].map(([k, v]) => (
+              {[['Creation Date', form.creationDate], ['Category', form.category], ['Currency', form.currency], ['Submission Deadline', form.deadline || '—'], ['Delivery', form.deliveryLocation || '—'], ['Payment', form.paymentTerms]].map(([k, v]) => (
                 <div key={k} className="rounded-xl border border-ink-100 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{k}</p><p className="font-semibold text-ink-800">{v}</p></div>
               ))}
             </div>

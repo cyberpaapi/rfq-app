@@ -4,6 +4,7 @@ import logs from './routes/logs.js'
 import uploads from './routes/uploads.js'
 import roles from './routes/roles.js'
 import users from './routes/users.js'
+import currencies from './routes/currencies.js'
 import { accessControl } from './lib/access.js'
 import { requestLogging } from './lib/diagnostics.js'
 import * as store from './store.js'
@@ -52,6 +53,7 @@ app.use('/api/auth', auth)
 app.use('/api', accessControl)
 app.use('/api/roles', roles)
 app.use('/api/users', users)
+app.use('/api/currencies', currencies)
 app.use('/api/logs', logs)
 app.use('/api/uploads', uploads)
 
