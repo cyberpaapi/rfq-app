@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import * as XLSX from 'xlsx'
 import * as store from '../store.js'
+import { assignedRfqLines } from '../../shared/assignments.js'
+import { roleCan } from '../../shared/roles.js'
 
 import { isPriced } from '../../shared/evaluation.js'
 
@@ -120,7 +122,8 @@ router.get('/costing/:rfqId', (req, res) => {
 router.get('/rfq-items/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
-  const rows = rfq.lines.map((l, i) => ({
+  const visibleLines = req.supplierId && !roleCan(req.accessRole, 'workspace.view') ? assignedRfqLines(rfq, req.supplierId) : rfq.lines
+  const rows = visibleLines.map((l, i) => ({
     'S.No': i + 1,
     'Item Name': l.name,
     'Specification': [l.spec, l.description].filter(Boolean).join(' — '),
