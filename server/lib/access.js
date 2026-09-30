@@ -46,7 +46,7 @@ export function requiredPermissions(method, path, body = {}) {
 }
 export function checkAccess(role, method, path, body) {
   if (!role?.enabled) return false
-  if (role.readOnly && method !== 'GET' && path !== '/logs/events') return false
+  if (role.readOnly && method !== 'GET' && path !== '/logs/events' && !/^\/notifications\/(read-all|[^/]+\/read)$/.test(path)) return false
   return requiredPermissions(method, path, body).every((group) => group.split('|').some((p) => roleCan(role, p)))
 }
 export function accessControl(req, res, next) {

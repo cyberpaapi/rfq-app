@@ -353,10 +353,11 @@ export function logAudit({ rfqId = null, user = 'System', action, field = '', ol
   return entry
 }
 
-export function notify({ type = 'info', title, rfqId = null }) {
+export function notify({ type = 'info', title, rfqId = null, audience = ['workspace.view'], approvalRole = null }) {
   ensure()
-  const n = { id: newId('NTF'), type, title, rfqId, unread: true, at: Date.now() }
+  const n = { id: newId('NTF'), type, title, rfqId, audience, approvalRole, readBy: [], unread: true, at: Date.now() }
   currentDb().notifications.push(n)
+  if (currentDb().notifications.length > 500) currentDb().notifications.splice(0, currentDb().notifications.length - 500)
   flush()
   return n
 }

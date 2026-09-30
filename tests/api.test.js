@@ -103,6 +103,7 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal((await request('/auth/me', null, 'GET', cookies.get('reviewer2'))).data.account.permissions.includes('portal.access'), true)
     assert.equal((await asUser(`/users/${first.data.id}/password`, 'reviewer')).status, 403)
     assert.equal((await asUser('/rfqs', 'reviewer')).status, 200)
+    assert.equal((await asUser('/notifications/read-all', 'reviewer', {})).status, 200)
     assert.equal((await asUser('/rfqs', 'reviewer', { title: 'Denied' })).status, 403)
     assert.equal((await asUser('/reports', 'reviewer')).status, 403)
     assert.equal((await asUser('/reports', 'reviewer2')).status, 403)
@@ -366,6 +367,42 @@ test('procurement API regression checks on isolated data', async (t) => {
   await t.test('recommendation validates weights and fails visibly without AI', async () => {
     assert.equal((await request('/rfqs/RFQ-2026-0042/recommend', { weights: { price: 0, quality: 0, delivery: 0 } })).status, 400)
     assert.equal((await request('/rfqs/RFQ-2026-0042/recommend', { weights: { price: 100, quality: 0, delivery: 0 } })).status, 503)
+  })
+  await t.test('notifications target approvers and preserve each account’s unread state', async () => {
+    const approverRole = (await request('/roles', { label: 'Notification approvers', permissions: ['workspace.view', 'approve.hod'] })).data
+    const buyerRole = (await request('/roles', { label: 'Notification buyers', permissions: ['workspace.view', 'rfq.create'] })).data
+    const first = (await request('/users', { roleId: approverRole.id, username: 'approver-one', password: 'approver-one-password-123' })).data
+    const second = (await request('/users', { roleId: approverRole.id, username: 'approver-two', password: 'approver-two-password-123' })).data
+    const buyer = (await request('/users', { roleId: buyerRole.id, username: 'notice-buyer', password: 'notice-buyer-password-123' })).data
+    const firstCookie = (await login(first.username, 'approver-one-password-123')).cookie
+    const secondCookie = (await login(second.username, 'approver-two-password-123')).cookie
+    const buyerCookie = (await login(buyer.username, 'notice-buyer-password-123')).cookie
+    const target = (await request('/rfqs', { title: 'Notification fixture', lines: [{ name: 'Lamp', qty: 1 }] })).data
+    assert.equal((await request(`/rfqs/${target.id}/assign`, { supplierId: 'SUP-001' })).status, 200)
+    assert.equal((await request(`/rfqs/${target.id}/status`, { status: 'Published' })).status, 200)
+    assert.equal((await request(`/rfqs/${target.id}/quote`, { supplierId: 'SUP-001', lines: [{ lineId: target.lines[0].lineId, rate: 10 }] })).status, 201)
+    assert.equal((await request(`/rfqs/${target.id}/forward-evaluation`)).status, 200)
+    const firstNotices = (await request('/notifications', null, 'GET', firstCookie)).data
+    const requestNotice = firstNotices.find((notice) => notice.rfqId === target.id && notice.type === 'approval_request')
+    assert.ok(requestNotice?.unread)
+    assert.match(requestNotice.title, /HOD approval needed/)
+    assert.ok(!firstNotices.some((notice) => notice.rfqId === target.id && /Finance approval needed/.test(notice.title)))
+    assert.ok(!(await request('/notifications', null, 'GET', buyerCookie)).data.some((notice) => notice.type === 'approval_request' && notice.rfqId === target.id))
+    assert.ok((await request('/notifications', null, 'GET', buyerCookie)).data.some((notice) => notice.type === 'response' && notice.rfqId === target.id))
+    assert.equal((await request(`/notifications/${requestNotice.id}/read`, {}, 'POST', buyerCookie)).status, 404)
+    assert.equal((await request(`/notifications/${requestNotice.id}/read`, {}, 'POST', firstCookie)).data.unread, false)
+    assert.equal((await request('/notifications', null, 'GET', secondCookie)).data.find((notice) => notice.id === requestNotice.id).unread, true)
+    assert.equal((await request('/notifications/read-all', {}, 'POST', firstCookie)).status, 200)
+    assert.equal((await request('/notifications', null, 'GET', secondCookie)).data.find((notice) => notice.id === requestNotice.id).unread, true)
+    assert.equal((await request(`/rfqs/${target.id}/clarifications`, { from: 'Supplier A', supplierId: 'SUP-001', message: 'Can you clarify delivery?' })).status, 201)
+    assert.ok((await request('/notifications', null, 'GET', buyerCookie)).data.some((notice) => notice.type === 'clarification' && notice.rfqId === target.id))
+    assert.equal((await request(`/rfqs/${target.id}/approve`, { role: 'hod' }, 'POST', firstCookie)).status, 200)
+    assert.ok(!(await request('/notifications', null, 'GET', secondCookie)).data.some((notice) => notice.id === requestNotice.id))
+    assert.equal((await request(`/rfqs/${target.id}/award`, { supplierId: 'SUP-001' })).status, 200)
+    assert.equal((await request(`/rfqs/${target.id}`, { lines: [{ ...target.lines[0], qty: 2 }] }, 'PUT')).data.status, 'Evaluation')
+    const reopenedRequests = (await request('/notifications', null, 'GET', secondCookie)).data.filter((notice) => notice.type === 'approval_request' && notice.rfqId === target.id)
+    assert.equal(reopenedRequests.length, 1)
+    assert.notEqual(reopenedRequests[0].id, requestNotice.id)
   })
   await t.test('diagnostics correlate failed requests and record sanitized UI events', async () => {
     const failed = await request(`/rfqs/${rfq.id}/award`, { supplierId: 'SUP-001' })

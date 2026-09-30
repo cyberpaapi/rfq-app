@@ -245,9 +245,14 @@ router.post('/:id/forward-evaluation', (req, res) => {
   if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before evaluation.' })
   const patch = { comparisonForwarded: true }
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
-  if (['Published', 'Responses Received'].includes(rfq.status)) patch.status = 'Evaluation'
+  if (['Published', 'Responses Received'].includes(rfq.status)) { patch.status = 'Evaluation'; patch.approvalRequestedAt = Date.now() }
   store.update('rfqs', rfq.id, patch)
   store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Forwarded comparison to Evaluation', field: 'Status', old: rfq.status, value: 'Evaluation' })
+  if (['Published', 'Responses Received'].includes(rfq.status)) {
+    for (const approvalRole of ['hod', 'finance']) {
+      if (!rfq.approvals?.[approvalRole]) store.notify({ type: 'approval_request', title: `${approvalRole === 'hod' ? 'HOD' : 'Finance'} approval needed: ${rfq.title}`, rfqId: rfq.id, audience: [`approve.${approvalRole}`], approvalRole })
+    }
+  }
   res.json(store.find('rfqs', rfq.id))
 })
 
@@ -301,7 +306,7 @@ router.put('/:id', (req, res) => {
     for (const key of Object.keys(b)) if (key !== 'lines' && key !== 'creationDate' && key !== 'title') delete b[key]
   }
   // Workflow decisions must go through their validated endpoints.
-  for (const key of ['award', 'awardHistory', 'status', 'approvals', 'deliveries', 'assignments', 'recommendation', 'recommendedAt']) delete b[key]
+  for (const key of ['award', 'awardHistory', 'status', 'approvals', 'approvalRequestedAt', 'deliveries', 'assignments', 'recommendation', 'recommendedAt']) delete b[key]
   delete b.createdAt
   if (b.creationDate !== undefined && !validDate(b.creationDate)) return res.status(400).json({ error: 'Enter a valid RFQ creation date.' })
   if (b.lines !== undefined) {
@@ -327,6 +332,7 @@ router.put('/:id', (req, res) => {
         b.deliveries = []
         b.approvals = {}
         b.status = 'Evaluation'
+        b.approvalRequestedAt = Date.now()
         store.removeItemPurchasesForRfq(current.id)
         store.logAudit({ rfqId: current.id, user: actor(req), action: 'Reopened award after item changes', field: 'Award', old: current.award?.type || current.status, value: 'Evaluation' })
       }
@@ -336,6 +342,9 @@ router.put('/:id', (req, res) => {
   delete b.id
   const updated = store.update('rfqs', req.params.id, b)
   if (!updated) return res.status(404).json({ error: 'not found' })
+  if (b.approvalRequestedAt) {
+    for (const approvalRole of ['hod', 'finance']) store.notify({ type: 'approval_request', title: `${approvalRole === 'hod' ? 'HOD' : 'Finance'} approval needed: ${updated.title}`, rfqId: updated.id, audience: [`approve.${approvalRole}`], approvalRole })
+  }
   if (b.creationDate && b.creationDate !== current.creationDate) store.logAudit({ rfqId: current.id, user: actor(req), action: 'Changed RFQ creation date', field: 'Creation Date', old: current.creationDate || '', value: b.creationDate })
   if (b.title && b.title !== current.title) store.logAudit({ rfqId: current.id, user: actor(req), action: 'Renamed RFQ', field: 'Name', old: current.title, value: b.title })
   res.json(updated)
