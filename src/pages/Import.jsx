@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useRef, useState } from 'react'
 import {
   UploadCloud, FileText, FileSpreadsheet, Image as ImageIcon, File,
   Plus, Loader2, ArrowRight, X, ChevronDown, MapPin,
   Boxes, ListChecks, TriangleAlert, FilePlus2, RefreshCw,
 } from 'lucide-react'
-import { Ingest, Rfqs, Cluster, Currencies } from '../api/client'
+import { Ingest, Cluster } from '../api/client'
 import { Card, Empty } from '../components/ui'
 import DocViewer from '../components/DocViewer'
 import ItemsTable from '../components/ItemsTable'
 import BrandIcon from '../components/BrandIcon'
-import { localToday } from '../../shared/rfqDates'
+import CreateRfq from './CreateRfq'
+import { draftFromImport } from '../../shared/importDraft'
 
 const iconFor = (name = '') => {
   const e = name.split('.').pop()?.toLowerCase()
@@ -45,7 +45,6 @@ function PageLabel({ instances = [], activeIdx = -1, onClick }) {
 }
 
 export default function Import() {
-  const nav = useNavigate()
   const inputRef = useRef(null)
   const anotherRef = useRef(null)
   const cycleRef = useRef({})
@@ -59,13 +58,7 @@ export default function Import() {
   const [clubs, setClubs] = useState(null)  // clubbed view (resolved with memberItems)
   const [error, setError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [rfqName, setRfqName] = useState('')
-  const [creationDate, setCreationDate] = useState(localToday)
-  const [deadline, setDeadline] = useState('')
-  const [currency, setCurrency] = useState('USD')
-  const [currencyOptions, setCurrencyOptions] = useState([{ code: 'USD', name: 'US dollar', active: true }])
-  useEffect(() => { Currencies.list().then((items) => setCurrencyOptions(items.filter((item) => item.active))).catch((failure) => setError(failure.message)) }, [])
+  const [draft, setDraft] = useState(null)
 
   const [view, setView] = useState('basic')
   const [verifyOpen, setVerifyOpen] = useState(false)
@@ -78,7 +71,7 @@ export default function Import() {
   const resolveClubs = (clubsRaw, sourceRows) =>
     clubsRaw ? clubsRaw.map((c) => ({ ...c, memberItems: (c.members || []).map((i) => sourceRows[i]).filter(Boolean) })) : null
 
-  const pick = (f) => { setFile(f); setRfqName(f.name.replace(/\.[^.]+$/, '')); setRows(null); setDocs([]); setClubs(null); setMeta(null); setError(null); setVerifyOpen(false); setVerifyDocId(null); setView('basic'); cycleRef.current = {} }
+  const pick = (f) => { setFile(f); setRows(null); setDocs([]); setClubs(null); setMeta(null); setError(null); setVerifyOpen(false); setVerifyDocId(null); setView('basic'); cycleRef.current = {} }
 
   const processFile = async (f, append = false) => {
     setBusy(true); setError(null)
@@ -90,15 +83,18 @@ export default function Import() {
 
       if (append) {
         const allRows = [...(rows || []), ...mapped]
-        setDocs((d) => [...d, newDoc])
+        const allDocs = [...docs, newDoc]
+        setDocs(allDocs)
         setRows(allRows)
         setMeta((m) => ({ ...m, engine: res.engine, note: res.note, pages: res.pages, chunks: res.chunks }))
         await recluster(allRows)
+        if (allRows.some((row) => typeof row.name === 'string' && row.name.trim())) setDraft(draftFromImport(allRows, allDocs))
       } else {
         setDocs([newDoc])
         setRows(mapped)
         setClubs(resolveClubs(res.clubs, mapped))
         setMeta({ engine: res.engine, clubEngine: res.clubEngine, note: res.note, sourceKind: res.sourceKind, count: res.count, newItems: res.newItems, pages: res.pages, chunks: res.chunks })
+        if (mapped.some((row) => typeof row.name === 'string' && row.name.trim())) setDraft(draftFromImport(mapped, [newDoc]))
       }
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -135,26 +131,13 @@ export default function Import() {
     setVerifyOpen((v) => !v)
   }
 
-  const createRfq = async () => {
-    setCreating(true)
-    try {
-      const rfq = await Rfqs.create({
-        title: rfqName.trim(),
-        description: docs.length ? `Imported from ${docs.map((d) => d.name).join(', ')}` : '',
-        creationDate,
-        deadline,
-        currency,
-        lines: rows.filter((r) => r.name.trim()).map((r) => ({ itemId: r.itemId, sku: r.sku || '', name: r.name, spec: r.spec, description: r.description, qty: Number(r.quantity) || 1, uom: r.uom, brand: r.brand || '', model: r.model || '', partNo: r.partNo || '', secondaryRequirements: r.secondaryRequirements || '', remark: r.remark || '', requiredDeliveryDate: r.requiredDeliveryDate || '' })),
-      })
-      nav(`/assign/${rfq.id}`)
-    } catch (failure) { setError(failure.message) } finally { setCreating(false) }
-  }
-
   const Icon = file ? iconFor(file.name) : UploadCloud
   const verifyDoc = docs.find((d) => d.id === verifyDocId) || docs[0]
   const canVerify = docs.some((d) => VERIFIABLE.includes(d.sourceKind))
   const showViewer = verifyOpen && verifyDoc && VERIFIABLE.includes(verifyDoc.sourceKind)
   const withSecondary = rows ? rows.filter((r) => (r.secondaryRequirements || '').trim()).length : 0
+
+  if (draft) return <CreateRfq initialDraft={draft} onBackToImport={() => setDraft(null)} />
 
   return (
     <div className="space-y-6">
@@ -252,12 +235,8 @@ export default function Import() {
           </div>
 
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-ink-100 pt-4">
-            <p className="text-xs text-ink-400">The <b>Basic view</b> is the source of truth used to create the RFQ. Edits there flow into the new RFQ.</p>
-            <label className="min-w-52 flex-1 text-sm font-semibold text-ink-700">RFQ name<input className="input mt-1" value={rfqName} maxLength={160} onChange={(event) => setRfqName(event.target.value)} placeholder="Name this RFQ" /></label>
-            <label className="text-sm font-semibold text-ink-700">RFQ Creation Date<input type="date" required className="input mt-1" value={creationDate} onChange={(event) => setCreationDate(event.target.value)} /></label>
-            <label className="text-sm font-semibold text-ink-700">Submission Deadline<input type="date" className="input mt-1" value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label>
-            <label className="text-sm font-semibold text-ink-700">Currency<select className="input mt-1" value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencyOptions.map((item) => <option key={item.code} value={item.code}>{item.code} — {item.name}</option>)}</select></label>
-            <button className="btn-primary" disabled={creating || rows.length === 0 || !creationDate || !rfqName.trim()} onClick={createRfq}>{creating ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : <>Create RFQ <ArrowRight size={16} /></>}</button>
+            <p className="max-w-xl text-xs text-ink-500">Review the AI extraction here, then continue through the standard RFQ details, items, suppliers and review screens. The RFQ code is assigned when you save.</p>
+            <button className="btn-primary" disabled={busy || !rows.some((row) => typeof row.name === 'string' && row.name.trim())} onClick={() => setDraft(draftFromImport(rows, docs))}>Continue to Create RFQ <ArrowRight size={16} /></button>
           </div>
         </Card>
       )}

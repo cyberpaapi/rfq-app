@@ -16,12 +16,12 @@ import { localToday } from '../../shared/rfqDates'
 
 const steps = ['Details', 'Items', 'Suppliers', 'Review']
 
-export default function CreateRfq() {
+export default function CreateRfq({ initialDraft, onBackToImport }) {
   const nav = useNavigate()
   const { can } = useAuth()
-  const [mode, setMode] = useState(null)
+  const [mode, setMode] = useState(initialDraft ? 'ai' : null)
   const [step, setStep] = useState(0)
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => initialDraft?.form || {
     title: '', description: '', creationDate: localToday(), currency: 'USD', deadline: '',
     deliveryLocation: '', paymentTerms: '30 days net', category: '',
   })
@@ -30,7 +30,7 @@ export default function CreateRfq() {
   const [catalogueCategories, setCatalogueCategories] = useState([])
   const [catalogueError, setCatalogueError] = useState('')
   const [imported, setImported] = useState([]) // items parsed from an Excel/doc upload
-  const [lines, setLines] = useState([])        // selected RFQ lines
+  const [lines, setLines] = useState(() => initialDraft?.lines || []) // selected RFQ lines
   const [suppliers, setSuppliers] = useState([])
   const [picked, setPicked] = useState([])
   const [openGroups, setOpenGroups] = useState([])
@@ -112,9 +112,9 @@ export default function CreateRfq() {
   const readyLines = lines.filter((line) => typeof line.name === 'string' && line.name.trim())
 
   const canNext =
-    (step === 0 && form.title && form.creationDate) ||
+    (step === 0 && form.title.trim() && form.creationDate) ||
     (step === 1 && readyLines.length > 0) ||
-    (step === 2 && picked.length > 0) ||
+    step === 2 ||
     step === 3
 
   const save = async (publish) => {
@@ -177,12 +177,12 @@ export default function CreateRfq() {
 
   return (
     <div className="space-y-6">
-      <button type="button" onClick={() => setMode(null)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"><ArrowLeft size={16} /> Choose another method</button>
+      {onBackToImport ? <button type="button" onClick={onBackToImport} className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"><ArrowLeft size={16} /> Back to AI extraction</button> : <button type="button" onClick={() => setMode(null)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-500 hover:text-ink-800"><ArrowLeft size={16} /> Choose another method</button>}
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Create RFQ</h1>
-          <p className="mt-1 text-sm text-ink-500">RFQ number is assigned automatically on save. Prefer AI Import for big documents — <Link to="/import" className="font-semibold text-brand-600">try it</Link>.</p>
+          <p className="mt-1 text-sm text-ink-500">{initialDraft ? 'AI-filled items are ready to review. Complete the same details, supplier and review steps used for a manual RFQ.' : <>RFQ number is assigned automatically on save. Prefer AI Import for big documents — <Link to="/import" className="font-semibold text-brand-600">try it</Link>.</>}</p>
         </div>
       </div>
 
