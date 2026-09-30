@@ -61,15 +61,17 @@ export function accessControl(req, res, next) {
   req.headers['x-user-name'] = role.username
   req.supplierId = role.supplierId || ''
   const rfqExport = /^\/export\/rfq-items\/([^/]+)\/?$/i.exec(path)
+  if (rfqExport && req.supplierId && store.find('rfqs', rfqExport[1])?.status === 'Draft') return res.status(403).json({ error: 'This RFQ has not been published to your supplier.' })
   if (rfqExport && !roleCan(role, 'workspace.view') && req.supplierId) {
     const rfq = store.find('rfqs', rfqExport[1])
-    if (!rfq?.assignments?.some((assignment) => assignment.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to your supplier.' })
+    if (!rfq?.assignments?.some((assignment) => assignment.supplierId === req.supplierId) || rfq.status === 'Draft') return res.status(403).json({ error: 'This RFQ has not been published to your supplier.' })
   }
   const targetPath = target
+  if (req.supplierId && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath) && store.find('rfqs', targetPath.split('/')[2])?.status === 'Draft') return res.status(403).json({ error: 'This RFQ has not been published to your supplier.' })
   if (!roleCan(role, 'workspace.view') && req.supplierId && typeof targetPath === 'string' && /^\/rfqs\//i.test(targetPath)) {
     const id = targetPath.split('/')[2]
     const rfq = store.find('rfqs', id)
-    if (!rfq?.assignments?.some((a) => a.supplierId === req.supplierId)) return res.status(403).json({ error: 'This RFQ is not assigned to your supplier.' })
+    if (!rfq?.assignments?.some((a) => a.supplierId === req.supplierId) || rfq.status === 'Draft') return res.status(403).json({ error: 'This RFQ has not been published to your supplier.' })
     if (req.method !== 'GET') {
       if (/\/respond\/?$/i.test(targetPath)) return res.status(403).json({ error: 'Use your assigned supplier portal to submit this quote.' })
       if (path === '/uploads/prepare') return next()

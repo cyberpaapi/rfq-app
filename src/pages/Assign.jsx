@@ -7,6 +7,7 @@ import {
 import { Rfqs, Suppliers, Tags, weightedScore } from '../api/client'
 import { Card, Avatar, Spinner, Tag, Empty, StatusBadge, Drawer } from '../components/ui'
 import RfqTitleEditor from '../components/RfqTitleEditor'
+import { useAuth } from '../context/AuthContext'
 
 const CATEGORIES = ['Electronics', 'Raw Materials', 'Services', 'General']
 const SCORE_META = [
@@ -33,6 +34,7 @@ function ScoreBars({ scores = {}, compact }) {
 }
 
 export default function Assign() {
+  const { can } = useAuth()
   const { id } = useParams()
   const nav = useNavigate()
   const [rfqs, setRfqs] = useState(null)
@@ -102,11 +104,18 @@ export default function Assign() {
     await loadRfq(rfq.id)
     await loadSuppliers()
     setAllTags(await Tags())
-    flash(`Sent ${type === 'full' ? 'full RFQ' : `${lineIds.length} item(s)`} to ${supplier.name}. Tags updated: ${res.supplierTags.slice(-2).join(', ')}`)
+    flash(`${rfq.status === 'Draft' ? 'Selected' : 'Sent'} ${type === 'full' ? 'full RFQ' : `${lineIds.length} item(s)`} ${rfq.status === 'Draft' ? 'for' : 'to'} ${supplier.name}. Tags updated: ${res.supplierTags.slice(-2).join(', ')}`)
     } catch (e) { flash(e.message) } finally { setBusy(false) }
   }
 
   const unassign = async (supplierId) => { setBusy(true); try { await Rfqs.unassign(rfq.id, supplierId); await loadRfq(rfq.id) } catch (e) { flash(e.message) } finally { setBusy(false) } }
+
+  const publish = async () => {
+    setBusy(true)
+    try { await Rfqs.setStatus(rfq.id, 'Published'); await loadRfq(rfq.id); flash('RFQ published to the selected suppliers.') }
+    catch (e) { flash(e.message) }
+    finally { setBusy(false) }
+  }
 
   const submitRating = async ({ stars, note }) => {
     await Suppliers.rate(rating.id, { stars, note, rfqId: rfq.id })
@@ -140,11 +149,12 @@ export default function Assign() {
             <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Assign RFQ</h1>
             <StatusBadge status={rfq.status} />
           </div>
-          <p className="mt-1 text-sm text-ink-500">Pick items on the left, choose suppliers on the right. Send the whole RFQ or a partial set.</p>
+          <p className="mt-1 text-sm text-ink-500">Pick items on the left, then choose suppliers for the whole RFQ or a partial set. {rfq.status === 'Draft' ? 'Publish when ready to send.' : ''}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={16} /> Download RFQ</a>
-          <button onClick={generateLink} className="btn-outline" title="Create a public link suppliers can open to download the RFQ and upload their response"><Link2 size={16} /> Generate RFQ link</button>
+          {rfq.status !== 'Draft' && <button onClick={generateLink} className="btn-outline" title="Create a public link suppliers can open to download the RFQ and upload their response"><Link2 size={16} /> Generate RFQ link</button>}
+          {rfq.status === 'Draft' && can('rfq.publish') && <button onClick={publish} disabled={busy || !rfq.assignments?.length} title={!rfq.assignments?.length ? 'Select a supplier before publishing' : undefined} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Send size={16} /> Publish</button>}
           <RfqPicker rfqs={rfqs} current={rfq} onPick={(rid) => { if (!busy) { setRfq(null); nav(`/assign/${rid}`) } }} />
         </div>
       </div>

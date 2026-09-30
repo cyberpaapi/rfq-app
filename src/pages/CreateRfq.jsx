@@ -130,10 +130,8 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
           secondaryRequirements: l.secondaryRequirements, remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
         })),
       })
-      // Assign the chosen suppliers (full RFQ). This also moves status to Published.
-      if (publish) {
-        for (const supplierId of picked) await Rfqs.assign(rfq.id, { supplierId, type: 'full' })
-      }
+      for (const supplierId of picked) await Rfqs.assign(rfq.id, { supplierId, type: 'full' })
+      if (publish) await Rfqs.setStatus(rfq.id, 'Published')
       nav(`/rfqs/${rfq.id}`)
     } catch (error) { setSaveError(error.message) } finally { setSaving(false) }
   }
@@ -340,7 +338,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
           ) : (
             <div className="flex gap-2">
               <button className="btn-outline" disabled={saving || readyLines.length === 0} onClick={() => save(false)}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Save as Draft'}</button>
-              <button className="btn-primary" disabled={!can('rfq.publish') || saving || readyLines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish RFQ</>}</button>
+              <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={!can('rfq.publish') || saving || readyLines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish</>}</button>
             </div>
           )}
         </div>

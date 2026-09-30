@@ -28,6 +28,7 @@ export default function RfqRespond() {
 
   if (rfq === undefined) return <div className="grid min-h-screen place-items-center bg-ink-50 text-ink-400"><Loader2 className="animate-spin" /></div>
   if (rfq === null) return <div className="grid min-h-screen place-items-center bg-ink-50"><div className="rounded-2xl bg-white p-8 text-center shadow-card"><p className="font-bold text-ink-800">RFQ not found</p><p className="mt-1 text-sm text-ink-400">This link is invalid or the RFQ was removed.</p></div></div>
+  if (rfq.status === 'Draft') return <div className="grid min-h-screen place-items-center bg-ink-50"><div className="rounded-2xl bg-white p-8 text-center shadow-card"><p className="font-bold text-ink-800">RFQ is still a draft</p><p className="mt-1 text-sm text-ink-500">Responses open after it is published.</p></div></div>
 
   return (
     <div className="min-h-screen bg-ink-50 px-4 py-10">

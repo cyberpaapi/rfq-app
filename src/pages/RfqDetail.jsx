@@ -60,6 +60,7 @@ export default function RfqDetail() {
   const [responseSupplier, setResponseSupplier] = useState('')
   const [creationDateInput, setCreationDateInput] = useState('')
   const [dateError, setDateError] = useState('')
+  const [statusError, setStatusError] = useState('')
 
   const load = useCallback(() => {
     Rfqs.get(id).then(setRfq).catch(() => setRfq(null))
@@ -68,8 +69,10 @@ export default function RfqDetail() {
   useEffect(() => { if (rfq) setCreationDateInput(rfqCreationDate(rfq)) }, [rfq?.id, rfq?.creationDate])
 
   const setStatus = async (status) => {
-    setBusy(true)
-    try { await Rfqs.setStatus(id, status); load() } finally { setBusy(false) }
+    setBusy(true); setStatusError('')
+    try { await Rfqs.setStatus(id, status); load() }
+    catch (error) { setStatusError(error.message) }
+    finally { setBusy(false) }
   }
   const updateDelivery = async (body) => { setBusy(true); try { await Rfqs.delivery(id, body); load() } finally { setBusy(false) } }
   const submitRating = async ({ stars, note }) => { await Rfqs.delivery(id, { supplierId: rating.supplierId, rate: { stars, note } }); setRating(null); load() }
@@ -113,13 +116,14 @@ export default function RfqDetail() {
           {can('rfq.create') && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline"><Pencil size={16} /> Edit items</Link>}
           {can('rfq.evaluate') && <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>}
           {rfq.status === STATUS.DRAFT && can('rfq.publish') && (
-            <button className="btn-primary" disabled={busy} onClick={() => setStatus(STATUS.PUBLISHED)}><Send size={16} /> Publish</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || !rfq.assignments?.length} title={!rfq.assignments?.length ? 'Select a supplier before publishing' : undefined} onClick={() => setStatus(STATUS.PUBLISHED)}><Send size={16} /> Publish</button>
           )}
           {canCancel && can('rfq.publish') && (
             <button className="btn-outline text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => setStatus(STATUS.CANCELLED)}><Ban size={16} /> Cancel RFQ</button>
           )}
         </div>
       </div>
+      {statusError && <p role="alert" className="text-sm text-rose-700">{statusError}</p>}
 
       <Card className="p-6"><WorkflowTracker status={rfq.status} /></Card>
 

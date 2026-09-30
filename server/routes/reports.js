@@ -35,7 +35,7 @@ router.get('/', (_req, res) => {
 
   // Supplier participation.
   const participation = suppliers.map((s) => {
-    const invited = rfqs.filter((r) => r.assignments?.some((a) => a.supplierId === s.id)).length
+    const invited = rfqs.filter((r) => r.status !== 'Draft' && r.assignments?.some((a) => a.supplierId === s.id)).length
     const responded = new Set(quotes.filter((q) => q.supplierId === s.id && q.lines?.some(isPriced)).map((q) => q.rfqId)).size
     const won = awarded.filter((r) => r.award?.supplierId === s.id || r.award?.splits?.some((x) => x.supplierId === s.id)).length
     return {
@@ -64,7 +64,7 @@ router.get('/', (_req, res) => {
 
   const summaryRows = rfqs.map((r) => ({
     id: r.id, title: r.title, status: r.status, buyer: r.buyer,
-    invited: r.assignments?.length || 0,
+    invited: r.status === 'Draft' ? 0 : r.assignments?.length || 0,
     responded: new Set(quotes.filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).map((q) => q.supplierId)).size,
     budget: r.budget || 0,
   }))

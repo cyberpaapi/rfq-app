@@ -57,7 +57,7 @@ const publicQuoteJob = (job) => ({ id: job.id, supplierId: job.supplierId, statu
 
 router.get('/', (req, res) => {
   const internal = roleCan(req.accessRole, 'workspace.view') || (!req.supplierId && (roleCan(req.accessRole, 'portal.access') || roleCan(req.accessRole, 'supplier.response.edit')))
-  const list = store.all('rfqs').filter((r) => internal || r.assignments?.some((a) => a.supplierId === req.supplierId))
+  const list = store.all('rfqs').filter((r) => (!req.supplierId || r.status !== 'Draft') && (internal || r.assignments?.some((a) => a.supplierId === req.supplierId)))
   res.json(list.map((r) => internal ? { ...r, quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
 
@@ -98,6 +98,7 @@ router.get('/:id/quote-file/:supplierId', async (req, res, next) => {
 router.put('/:id/quotes/:supplierId', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+  if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before accepting quotes.' })
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
   if (!quote) return res.status(404).json({ error: 'quote not found' })
@@ -241,10 +242,10 @@ router.post('/:id/recommend', async (req, res) => {
 router.post('/:id/forward-evaluation', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+  if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before evaluation.' })
   const patch = { comparisonForwarded: true }
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   if (['Published', 'Responses Received'].includes(rfq.status)) patch.status = 'Evaluation'
-  if (rfq.status === 'Draft' && store.all('quotes').some((q) => q.rfqId === rfq.id)) patch.status = 'Evaluation'
   store.update('rfqs', rfq.id, patch)
   store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Forwarded comparison to Evaluation', field: 'Status', old: rfq.status, value: 'Evaluation' })
   res.json(store.find('rfqs', rfq.id))
@@ -347,10 +348,19 @@ router.post('/:id/status', (req, res) => {
   const next = req.body?.status
   if (!WORKFLOW.includes(next) && !['Cancelled', 'Closed'].includes(next)) return res.status(400).json({ error: 'Invalid status.' })
   if (finalized(rfq) || next === 'Awarded' || next === 'Closed') return res.status(409).json({ error: 'Use the award and delivery workflow to finalize this RFQ.' })
+  if (rfq.status === 'Draft' && next !== 'Published' && next !== 'Cancelled') return res.status(409).json({ error: 'Publish the draft before advancing its status.' })
+  if (next === 'Published' && rfq.status !== 'Draft') return res.status(409).json({ error: 'Only a draft RFQ can be published.' })
+  if (next === 'Published' && (!rfq.lines?.length || !rfq.assignments?.length)) return res.status(400).json({ error: 'Add items and select at least one supplier before publishing.' })
   const old = rfq.status
   const updated = store.update('rfqs', rfq.id, { status: next })
   store.logAudit({ rfqId: rfq.id, user: actor(req), action: `Status → ${next}`, field: 'Status', old, value: next })
-  if (next === 'Published') store.notify({ type: 'response', title: `${rfq.title} published to suppliers`, rfqId: rfq.id })
+  if (next === 'Published') {
+    for (const assignment of rfq.assignments) {
+      const supplier = store.find('suppliers', assignment.supplierId)
+      if (supplier) store.update('suppliers', supplier.id, { previouslyInvited: true })
+    }
+    store.notify({ type: 'response', title: `${rfq.title} published to ${rfq.assignments.length} supplier(s)`, rfqId: rfq.id })
+  }
   if (next === 'Cancelled') store.notify({ type: 'deadline', title: `${rfq.title} was cancelled`, rfqId: rfq.id })
   res.json(updated)
 })
@@ -366,7 +376,6 @@ router.post('/:id/assign', (req, res) => {
 
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   if (supplier.qualified === false) return res.status(400).json({ error: 'Supplier is not qualified.' })
-  if (rfq.status === 'Draft' && !roleCan(req.accessRole, 'rfq.publish')) return res.status(403).json({ error: 'Inviting suppliers to a draft requires Publish RFQ permission.' })
   if (!['full', 'partial'].includes(type) || !Array.isArray(lineIds)) return res.status(400).json({ error: 'Invalid assignment.' })
   const targetIds = type === 'full' ? rfq.lines.map((l) => l.lineId) : [...new Set(lineIds)]
   if (!targetIds.length || targetIds.some((id) => !rfq.lines.some((l) => l.lineId === id))) return res.status(400).json({ error: 'Select valid RFQ items.' })
@@ -379,7 +388,7 @@ router.post('/:id/assign', (req, res) => {
     const base = linked?.baseName || deriveBaseName(line.name)
     if (base) { tags = addTagUnique(tags, base); store.registerTag(base) }
   }
-  store.update('suppliers', supplier.id, { tags, previouslyInvited: true })
+  store.update('suppliers', supplier.id, { tags, previouslyInvited: rfq.status === 'Draft' ? supplier.previouslyInvited : true })
 
   const assignment = {
     id: newId('ASG'),
@@ -390,10 +399,9 @@ router.post('/:id/assign', (req, res) => {
     createdAt: Date.now(),
   }
   const assignments = [...rfq.assignments.filter((a) => a.supplierId !== supplierId), assignment]
-  const status = rfq.status === 'Draft' ? 'Published' : rfq.status
-  store.update('rfqs', rfq.id, { assignments, status })
-  store.logAudit({ rfqId: rfq.id, user: actor(req), action: `Invited ${supplier.name}`, field: 'Suppliers', old: '', value: supplier.name })
-  store.notify({ type: 'response', title: `${supplier.name} invited to ${rfq.title}`, rfqId: rfq.id })
+  store.update('rfqs', rfq.id, { assignments })
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: `${rfq.status === 'Draft' ? 'Selected' : 'Invited'} ${supplier.name}`, field: 'Suppliers', old: '', value: supplier.name })
+  if (rfq.status !== 'Draft') store.notify({ type: 'response', title: `${supplier.name} invited to ${rfq.title}`, rfqId: rfq.id })
   res.json({ assignment, supplierTags: tags })
 })
 
@@ -410,6 +418,7 @@ router.delete('/:id/assign/:supplierId', (req, res) => {
 router.post('/:id/quote', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+  if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before accepting quotes.' })
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   const b = req.body || {}
   const supplier = store.find('suppliers', b.supplierId)
@@ -601,6 +610,7 @@ router.post('/:id/quote-upload-queue', (req, res, next) => req.is('application/j
   try {
     const rfq = store.find('rfqs', req.params.id)
     if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+    if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before accepting quotes.' })
     if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
     const supplier = store.find('suppliers', req.query.supplierId || req.body?.supplierId)
     if (!supplier || !rfq.assignments.some((assignment) => assignment.supplierId === supplier.id)) return res.status(403).json({ error: 'Supplier is not assigned to this RFQ.' })
@@ -647,6 +657,7 @@ router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {
   try {
     const rfq = store.find('rfqs', req.params.id)
     if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+    if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before accepting quotes.' })
     if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
     if (!req.file) return res.status(400).json({ error: 'file is required' })
     const supplier = store.find('suppliers', req.query.supplierId || req.body?.supplierId)
@@ -665,6 +676,7 @@ router.post('/:id/respond', upload.single('file'), async (req, res) => {
   try {
     const rfq = store.find('rfqs', req.params.id)
     if (!rfq) return res.status(404).json({ error: 'rfq not found' })
+    if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before accepting quotes.' })
     if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
     if (!req.file) return res.status(400).json({ error: 'file is required' })
     const name = String(req.body?.name || '').trim()
