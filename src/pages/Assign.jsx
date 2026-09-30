@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { Rfqs, Suppliers, Tags, weightedScore } from '../api/client'
 import { Card, Avatar, Spinner, Tag, Empty, StatusBadge, Drawer } from '../components/ui'
+import RfqTitleEditor from '../components/RfqTitleEditor'
 
 const CATEGORIES = ['Electronics', 'Raw Materials', 'Services', 'General']
 const SCORE_META = [
@@ -153,7 +154,7 @@ export default function Assign() {
         <div className="space-y-4">
           <Card className="p-5">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="font-bold text-ink-900">{rfq.title}</h2>
+              <RfqTitleEditor rfq={rfq} onSaved={(updated) => { setRfq((previous) => ({ ...previous, title: updated.title })); setRfqs((previous) => previous.map((item) => item.id === updated.id ? { ...item, title: updated.title } : item)) }} className="font-bold text-ink-900" />
               <div className="flex items-center gap-3">
                 <button onClick={() => setEditorOpen(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
                   <Pencil size={13} /> Edit / Add items

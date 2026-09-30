@@ -60,6 +60,7 @@ export default function Import() {
   const [error, setError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [rfqName, setRfqName] = useState('')
   const [creationDate, setCreationDate] = useState(localToday)
   const [deadline, setDeadline] = useState('')
   const [currency, setCurrency] = useState('USD')
@@ -77,7 +78,7 @@ export default function Import() {
   const resolveClubs = (clubsRaw, sourceRows) =>
     clubsRaw ? clubsRaw.map((c) => ({ ...c, memberItems: (c.members || []).map((i) => sourceRows[i]).filter(Boolean) })) : null
 
-  const pick = (f) => { setFile(f); setRows(null); setDocs([]); setClubs(null); setMeta(null); setError(null); setVerifyOpen(false); setVerifyDocId(null); setView('basic'); cycleRef.current = {} }
+  const pick = (f) => { setFile(f); setRfqName(f.name.replace(/\.[^.]+$/, '')); setRows(null); setDocs([]); setClubs(null); setMeta(null); setError(null); setVerifyOpen(false); setVerifyDocId(null); setView('basic'); cycleRef.current = {} }
 
   const processFile = async (f, append = false) => {
     setBusy(true); setError(null)
@@ -138,7 +139,7 @@ export default function Import() {
     setCreating(true)
     try {
       const rfq = await Rfqs.create({
-        title: docs[0] ? docs[0].name.replace(/\.[^.]+$/, '') : 'Imported RFQ',
+        title: rfqName.trim(),
         description: docs.length ? `Imported from ${docs.map((d) => d.name).join(', ')}` : '',
         creationDate,
         deadline,
@@ -252,10 +253,11 @@ export default function Import() {
 
           <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-ink-100 pt-4">
             <p className="text-xs text-ink-400">The <b>Basic view</b> is the source of truth used to create the RFQ. Edits there flow into the new RFQ.</p>
+            <label className="min-w-52 flex-1 text-sm font-semibold text-ink-700">RFQ name<input className="input mt-1" value={rfqName} maxLength={160} onChange={(event) => setRfqName(event.target.value)} placeholder="Name this RFQ" /></label>
             <label className="text-sm font-semibold text-ink-700">RFQ Creation Date<input type="date" required className="input mt-1" value={creationDate} onChange={(event) => setCreationDate(event.target.value)} /></label>
             <label className="text-sm font-semibold text-ink-700">Submission Deadline<input type="date" className="input mt-1" value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label>
             <label className="text-sm font-semibold text-ink-700">Currency<select className="input mt-1" value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencyOptions.map((item) => <option key={item.code} value={item.code}>{item.code} — {item.name}</option>)}</select></label>
-            <button className="btn-primary" disabled={creating || rows.length === 0 || !creationDate} onClick={createRfq}>{creating ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : <>Create RFQ <ArrowRight size={16} /></>}</button>
+            <button className="btn-primary" disabled={creating || rows.length === 0 || !creationDate || !rfqName.trim()} onClick={createRfq}>{creating ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : <>Create RFQ <ArrowRight size={16} /></>}</button>
           </div>
         </Card>
       )}

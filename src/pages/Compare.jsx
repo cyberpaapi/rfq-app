@@ -7,6 +7,7 @@ import { fmt } from '../data/mock'
 import { Card, Spinner } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import BrandIcon from '../components/BrandIcon'
+import RfqTitleEditor from '../components/RfqTitleEditor'
 
 export default function Compare() {
   const { can, current } = useAuth()
@@ -152,6 +153,8 @@ export default function Compare() {
           <button className="btn-primary" onClick={forward} disabled={current.readOnly || busy || scoring || recommending || saving || !!error || !!rfq?.award}>{busy ? <Loader2 size={16} className="animate-spin" /> : <>Forward to Evaluation <ArrowRight size={16} /></>}</button>
         </div>
       </div>
+
+      {rfq && <div className="rounded-xl border border-ink-100 bg-white px-4 py-3"><RfqTitleEditor rfq={rfq} onSaved={(updated) => { setRfq((previous) => ({ ...previous, title: updated.title })); setCandidates((previous) => previous.map((item) => item.id === updated.id ? { ...item, title: updated.title } : item)) }} className="text-lg font-bold text-ink-900" /><p className="text-xs text-ink-500">RFQ code: {rfq.id}</p></div>}
 
       {!rfq ? <Card><Spinner /></Card> : (
         <>

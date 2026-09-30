@@ -8,6 +8,7 @@ import { fmt } from '../data/mock'
 import { Card, SectionTitle, Avatar, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import BrandIcon from '../components/BrandIcon'
+import RfqTitleEditor from '../components/RfqTitleEditor'
 
 const CRITERIA = [
   { key: 'price', label: 'Price' },
@@ -223,7 +224,7 @@ export default function Award() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-ink-900"><BrandIcon name="split" size={38} /> Evaluation & Award</h1>
-          <p className="mt-1 text-sm text-ink-500">{rfq.id} — {rfq.title}</p>
+          <div className="mt-1"><RfqTitleEditor rfq={rfq} onSaved={(updated) => { setRfq((previous) => ({ ...previous, title: updated.title })); setCandidates((previous) => previous.map((item) => item.id === updated.id ? { ...item, title: updated.title } : item)) }} className="text-lg font-bold text-ink-900" /><p className="text-xs text-ink-500">RFQ code: {rfq.id}</p></div>
         </div>
         <select value={rfqId} onChange={(e) => setRfqId(e.target.value)} disabled={busy} aria-label="Select RFQ" className="input w-auto py-2">
           {candidates.map((r) => <option key={r.id} value={r.id}>{r.id} — {r.title}</option>)}

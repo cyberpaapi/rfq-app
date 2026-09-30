@@ -247,6 +247,7 @@ router.post('/:id/forward-evaluation', (req, res) => {
 
 router.post('/', (req, res) => {
   const b = req.body || {}
+  if (b.title !== undefined && (typeof b.title !== 'string' || !b.title.trim() || b.title.trim().length > 160)) return res.status(400).json({ error: 'RFQ name must be 1–160 characters.' })
   if (!store.getCurrencies().some((currency) => currency.code === (b.currency || 'USD') && currency.active)) return res.status(400).json({ error: 'Select an active currency.' })
   if (b.status && b.status !== 'Draft') return res.status(400).json({ error: 'Create a draft, then use the publish or award workflow.' })
   if (b.creationDate !== undefined && !validDate(b.creationDate)) return res.status(400).json({ error: 'Enter a valid RFQ creation date.' })
@@ -255,7 +256,7 @@ router.post('/', (req, res) => {
   if (lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) return res.status(400).json({ error: 'Every named item needs a positive quantity.' })
   const rfq = {
     id: newId('RFQ'),
-    title: b.title || 'Untitled RFQ',
+    title: b.title?.trim() || 'Untitled RFQ',
     description: b.description || '',
     status: b.status || 'Draft',
     buyer: b.buyer || actor(req),
@@ -283,10 +284,15 @@ router.put('/:id', (req, res) => {
   const current = store.find('rfqs', req.params.id)
   if (!current) return res.status(404).json({ error: 'rfq not found' })
   const b = { ...req.body }
+  if (b.id !== undefined && b.id !== current.id) return res.status(400).json({ error: 'RFQ code cannot be changed.' })
+  if (b.title !== undefined) {
+    if (typeof b.title !== 'string' || !b.title.trim() || b.title.trim().length > 160) return res.status(400).json({ error: 'RFQ name must be 1–160 characters.' })
+    b.title = b.title.trim()
+  }
   if (b.currency !== undefined && b.currency !== current.currency && !store.getCurrencies().some((currency) => currency.code === b.currency && currency.active)) return res.status(400).json({ error: 'Select an active currency.' })
   if (finalized(current)) {
-    if (b.lines === undefined && b.creationDate === undefined) return res.status(409).json({ error: 'Only item or creation date edits are allowed on this finalized RFQ.' })
-    for (const key of Object.keys(b)) if (key !== 'lines' && key !== 'creationDate') delete b[key]
+    if (b.lines === undefined && b.creationDate === undefined && b.title === undefined) return res.status(409).json({ error: 'Only name, item or creation date edits are allowed on this finalized RFQ.' })
+    for (const key of Object.keys(b)) if (key !== 'lines' && key !== 'creationDate' && key !== 'title') delete b[key]
   }
   // Workflow decisions must go through their validated endpoints.
   for (const key of ['award', 'awardHistory', 'status', 'approvals', 'deliveries', 'assignments', 'recommendation', 'recommendedAt']) delete b[key]
@@ -325,6 +331,7 @@ router.put('/:id', (req, res) => {
   const updated = store.update('rfqs', req.params.id, b)
   if (!updated) return res.status(404).json({ error: 'not found' })
   if (b.creationDate && b.creationDate !== current.creationDate) store.logAudit({ rfqId: current.id, user: actor(req), action: 'Changed RFQ creation date', field: 'Creation Date', old: current.creationDate || '', value: b.creationDate })
+  if (b.title && b.title !== current.title) store.logAudit({ rfqId: current.id, user: actor(req), action: 'Renamed RFQ', field: 'Name', old: current.title, value: b.title })
   res.json(updated)
 })
 

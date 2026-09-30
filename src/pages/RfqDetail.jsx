@@ -9,6 +9,7 @@ import { WORKFLOW, STATUS, fmt } from '../data/mock'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatusBadge, SectionTitle, Avatar, Empty, Spinner } from '../components/ui'
 import QuoteEditor from '../components/QuoteEditor'
+import RfqTitleEditor from '../components/RfqTitleEditor'
 import { isPriced } from '../../shared/evaluation'
 import { rfqCreationDate } from '../../shared/rfqDates'
 
@@ -101,7 +102,7 @@ export default function RfqDetail() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">{rfq.title}</h1>
+            <RfqTitleEditor rfq={rfq} onSaved={load} as="h1" className="text-2xl font-extrabold tracking-tight text-ink-900" />
             <StatusBadge status={rfq.status} />
           </div>
           <p className="mt-1 text-sm text-ink-500">{rfq.id} · Buyer {rfq.buyer} · Creation Date {created}</p>
