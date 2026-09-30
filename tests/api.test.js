@@ -162,6 +162,8 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001', type: 'partial', lineIds: [] })).status, 400)
     assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001', type: 'partial', lineIds: ['unknown'] })).status, 400)
     for (const supplierId of ['SUP-001', 'SUP-002']) assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId })).status, 200)
+    assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001' })).status, 409)
+    assert.equal((await request(`/rfqs/${rfq.id}`, null, 'GET')).data.assignments.filter((item) => item.supplierId === 'SUP-001').length, 1)
   })
   await t.test('supplier creators issue portal logins and response editors quote individual items', async () => {
     const role = await request('/roles', { label: 'Supplier intake', permissions: ['workspace.view', 'supplier.create', 'supplier.response.edit'] })
@@ -256,6 +258,20 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal(result.data.quotes.length, 1)
     assert.equal(result.data.quotes[0].supplierName, 'A')
     assert.equal((await request(`/rfqs/${rfq.id}/quote`, { ...body, supplierId: 'SUP-unknown' })).status, 400)
+  })
+  await t.test('partial revisions change only the selected supplier items', async () => {
+    const target = (await request('/rfqs', { title: 'Quote revisions', lines: [{ name: 'Valve', qty: 2 }, { name: 'Pump', qty: 1 }] })).data
+    assert.equal((await request(`/rfqs/${target.id}/assign`, { supplierId: 'SUP-001' })).status, 200)
+    const quote = (lines) => request(`/rfqs/${target.id}/quote`, { supplierId: 'SUP-001', lines })
+    assert.equal((await quote([{ lineId: target.lines[0].lineId, rate: 10 }, { lineId: target.lines[1].lineId, rate: 40 }])).status, 201)
+    assert.equal((await quote([{ lineId: target.lines[0].lineId, rate: 12 }])).status, 200)
+    const revised = (await request(`/rfqs/${target.id}`, null, 'GET')).data.quotes[0]
+    assert.deepEqual(Object.fromEntries(revised.lines.map((line) => [line.lineId, line.rate])), { [target.lines[0].lineId]: 12, [target.lines[1].lineId]: 40 })
+    assert.ok(revised.lineRevisions[target.lines[0].lineId])
+    assert.equal((await quote([{ lineId: target.lines[1].lineId, rate: 0 }])).status, 200)
+    const cleared = (await request(`/rfqs/${target.id}`, null, 'GET')).data.quotes[0]
+    assert.deepEqual(cleared.lines.map((line) => line.lineId), [target.lines[0].lineId])
+    assert.ok(cleared.lineRevisions[target.lines[1].lineId])
   })
   await t.test('award rejects incomplete cheap bids and missing split items', async () => {
     assert.equal((await request(`/rfqs/${rfq.id}/award`, { supplierId: 'SUP-001', amount: 0 })).status, 400)

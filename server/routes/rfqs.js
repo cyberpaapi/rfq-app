@@ -107,12 +107,14 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
     if (line.readyToSendDate !== undefined && line.readyToSendDate !== '' && !validDate(line.readyToSendDate)) return res.status(400).json({ error: 'Ready to send date must be a valid date.' })
   }
   const patchById = Object.fromEntries(lines.map((l) => [l.lineId, l]))
+  const priceRevisionAt = Date.now()
+  const priceIds = lines.filter((line) => line.rate !== undefined).map((line) => line.lineId)
   const existing = new Set(quote.lines.map((l) => l.lineId))
   const allLines = [...quote.lines, ...lines.filter((l) => !existing.has(l.lineId)).map((l) => ({ lineId: l.lineId, rate: 0 }))]
   const next = allLines.map((l) => {
     const p = patchById[l.lineId] || {}
     const merged = { ...l }
-    if (p.rate !== undefined) merged.rate = Number(p.rate) || 0
+    if (p.rate !== undefined) { merged.rate = Number(p.rate) || 0; merged.revisedAt = priceRevisionAt }
     if (p.eta !== undefined) merged.eta = p.eta
     if (p.readyToSendDate !== undefined) merged.readyToSendDate = p.readyToSendDate
     if (p.specNotes !== undefined) merged.specNotes = p.specNotes
@@ -121,7 +123,9 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
     if (etaAll !== undefined && (p.eta === undefined)) merged.eta = etaAll
     return merged
   })
-  const updated = store.update('quotes', quote.id, { lines: next })
+  const updated = store.update('quotes', quote.id, { lines: next,
+    lineRevisions: { ...(quote.lineRevisions || {}), ...Object.fromEntries(priceIds.map((id) => [id, priceRevisionAt])) },
+    submittedAt: priceIds.length ? priceRevisionAt : quote.submittedAt })
   invalidateRecommendation(rfq.id)
   res.json(stripFile(updated))
 })
@@ -346,6 +350,7 @@ router.post('/:id/assign', (req, res) => {
   const { supplierId, type = 'full', lineIds = [] } = req.body || {}
   const supplier = store.find('suppliers', supplierId)
   if (!supplier) return res.status(404).json({ error: 'supplier not found' })
+  if (rfq.assignments?.some((assignment) => assignment.supplierId === supplierId)) return res.status(409).json({ error: 'Supplier is already selected for this RFQ.' })
 
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   if (supplier.qualified === false) return res.status(400).json({ error: 'Supplier is not qualified.' })
@@ -406,10 +411,11 @@ router.post('/:id/quote', (req, res) => {
   const priced = b.lines.filter(isPriced)
   if (!priced.length && !existing) return res.status(400).json({ error: 'Enter at least one positive price before submitting.' })
   const changed = new Map(b.lines.map((l) => [l.lineId, l]))
+  const revisedAt = Date.now()
   const lines = [...(replaceLines ? [] : (existing?.lines || []).filter((l) => !changed.has(l.lineId))), ...priced.map((l) => {
     const item = rfq.lines.find((r) => r.lineId === l.lineId)
     const old = existing?.lines?.find((r) => r.lineId === l.lineId) || {}
-    return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate),
+    return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate), revisedAt,
       leadTime: l.leadTime ?? old.leadTime ?? '', warranty: l.warranty ?? old.warranty ?? '',
       eta: l.eta ?? old.eta ?? '', readyToSendDate: l.readyToSendDate ?? old.readyToSendDate ?? '', remark: l.remark ?? old.remark ?? '' }
   })]
@@ -419,9 +425,10 @@ router.post('/:id/quote', (req, res) => {
     supplierId: b.supplierId || null,
     supplierName: supplier.name,
     lines,
+    lineRevisions: { ...(existing?.lineRevisions || {}), ...Object.fromEntries(b.lines.map((line) => [line.lineId, revisedAt])) },
     paymentTerms: b.paymentTerms ?? existing?.paymentTerms ?? '',
     notes: b.notes ?? existing?.notes ?? '',
-    submittedAt: Date.now(),
+    submittedAt: revisedAt,
   }
   if (!lines.length) {
     store.remove('quotes', existing.id)
@@ -468,27 +475,39 @@ async function parseQuoteFromFile(rfq, file) {
     total: rfq.lines.length, unmatched: rfq.lines.filter((_, i) => map[i] < 0).map((line) => line.name) }
 }
 
-function saveParsedQuote(rfqId, supplierId, file, parsed) {
+function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now()) {
   const rfq = store.find('rfqs', rfqId)
   const supplier = store.find('suppliers', supplierId)
   if (!rfq || !supplier) throw new Error('RFQ or supplier was removed while processing.')
   if (finalized(rfq)) throw new Error('This RFQ was finalized while the document was processing.')
   if (!rfq.assignments.some((assignment) => assignment.supplierId === supplierId)) throw new Error('Supplier is no longer assigned to this RFQ.')
   if (rfq.lines.map((line) => line.lineId).join('|') !== parsed.rfqLineIds.join('|')) throw new Error('RFQ items changed during processing. Retry this upload.')
-  invalidateRecommendation(rfq.id)
   const previous = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
-  // A partial document must not erase prices entered manually for other items.
+  // A partial document changes only matched items. A slower, older upload must
+  // never overwrite an item already revised by a later upload or manual entry.
   const matchedIds = new Set(parsed.matchedIds)
-  const mergedLines = [...(previous?.lines || []).filter((old) => !matchedIds.has(old.lineId)),
-    ...parsed.lines.filter(isPriced).map((line) => ({ ...line, readyToSendDate: previous?.lines?.find((old) => old.lineId === line.lineId)?.readyToSendDate || '' }))]
+  const previousLines = previous?.lines || []
+  const latestIds = new Set([...matchedIds].filter((id) => {
+    const old = previousLines.find((line) => line.lineId === id)
+    return uploadedAt >= (previous?.lineRevisions?.[id] ?? old?.revisedAt ?? (old ? previous.submittedAt : 0) ?? 0)
+  }))
+  const mergedLines = [...previousLines.filter((old) => !latestIds.has(old.lineId)),
+    ...parsed.lines.filter((line) => latestIds.has(line.lineId) && isPriced(line)).map((line) => ({
+      ...line, revisedAt: uploadedAt, readyToSendDate: previousLines.find((old) => old.lineId === line.lineId)?.readyToSendDate || '',
+    }))]
   const quoteData = {
     ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
-    lines: mergedLines, paymentTerms: previous?.paymentTerms || '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
+    lines: mergedLines, lineRevisions: { ...(previous?.lineRevisions || {}), ...Object.fromEntries([...latestIds].map((id) => [id, uploadedAt])) },
+    paymentTerms: previous?.paymentTerms || '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
     // keep the original file so the buyer can re-download the exact response
     fileBlob: file.blob || null, fileData: file.blob ? null : file.buffer.toString('base64'),
     fileMime: file.mimetype || 'application/octet-stream', fileName: file.originalname,
-    currency: 'USD', sourceCurrency: parsed.currency, fxRate: parsed.rate, fxSource: parsed.rateSource, submittedAt: Date.now(),
+    currency: 'USD', sourceCurrency: parsed.currency, fxRate: parsed.rate, fxSource: parsed.rateSource, submittedAt: Math.max(uploadedAt, previous?.submittedAt || 0),
   }
+  if (previous && !latestIds.size) return { quote: stripFile(previous), engine: parsed.engine, matchEngine: parsed.matchEngine,
+    currency: parsed.currency, rate: parsed.rate, rateSource: parsed.rateSource, usedUsdColumn: parsed.usedUsdColumn,
+    extracted: parsed.extracted, matched: 0, total: parsed.total, unmatched: parsed.unmatched }
+  invalidateRecommendation(rfq.id)
   const quote = previous ? store.update('quotes', previous.id, quoteData) : store.insert('quotes', quoteData)
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
   store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Uploaded quotation document', field: 'Quotes', old: '', value: file.originalname })
@@ -535,7 +554,7 @@ async function processQueuedQuote(rfqId, jobId) {
       const current = store.find('rfqs', rfqId)
       const active = findQuoteJob(current, jobId)
       if (!active || active.status === 'completed') return
-      const result = saveParsedQuote(rfqId, job.supplierId, file, parsed)
+      const result = saveParsedQuote(rfqId, job.supplierId, file, parsed, job.createdAt)
       updateQuoteJob(store.find('rfqs', rfqId), jobId, { status: 'completed', completedAt: Date.now(),
         result: { matched: result.matched, priced: result.quote.lines.filter(isPriced).length, total: result.total, unmatched: result.unmatched, source: file.originalname }, file: { ...job.file, localPath: undefined } })
     })

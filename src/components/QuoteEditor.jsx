@@ -10,6 +10,7 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [touched, setTouched] = useState([])
   const [bulkEta, setBulkEta] = useState('')
   const [bulkReadyDate, setBulkReadyDate] = useState('')
 
@@ -18,42 +19,50 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
     setSelected((quote?.lines || []).filter(isPriced).map((line) => line.lineId))
     setBulkEta('')
     setBulkReadyDate('')
+    setTouched([])
     setDirty(false); setError('')
   }, [rfq.id, supplierId, quote?.submittedAt])
 
   const update = (lineId, field, value) => {
     setDirty(true)
+    setTouched((previous) => previous.includes(lineId) ? previous : [...previous, lineId])
     setValues((previous) => ({ ...previous, [lineId]: { ...previous[lineId], [field]: value } }))
     if (field === 'rate') setSelected((previous) => Number(value) > 0 ? previous.includes(lineId) ? previous : [...previous, lineId] : previous.filter((id) => id !== lineId))
   }
   const toggle = (lineId) => {
     setDirty(true)
+    setTouched((previous) => previous.includes(lineId) ? previous : [...previous, lineId])
     setSelected((previous) => previous.includes(lineId) ? previous.filter((id) => id !== lineId) : [...previous, lineId])
   }
   const toggleAll = () => {
     setDirty(true)
+    setTouched(rfq.lines.map((line) => line.lineId))
     setSelected((previous) => previous.length === rfq.lines.length ? [] : rfq.lines.map((line) => line.lineId))
   }
   const applyEtaToAll = () => {
     if (!bulkEta) return
     setDirty(true)
+    setTouched((previous) => [...new Set([...previous, ...rfq.lines.map((line) => line.lineId)])])
     setNotice('')
     setValues((previous) => Object.fromEntries(rfq.lines.map((line) => [line.lineId, { ...previous[line.lineId], eta: bulkEta }])))
   }
   const applyReadyDateToAll = () => {
     if (!bulkReadyDate) return
     setDirty(true)
+    setTouched((previous) => [...new Set([...previous, ...rfq.lines.map((line) => line.lineId)])])
     setNotice('')
     setValues((previous) => Object.fromEntries(rfq.lines.map((line) => [line.lineId, { ...previous[line.lineId], readyToSendDate: bulkReadyDate }])))
   }
   const submit = async (event) => {
     event.preventDefault(); setError(''); setNotice('')
-    const lines = rfq.lines.filter((line) => selected.includes(line.lineId) && isPriced(values[line.lineId])).map((line) => ({ lineId: line.lineId, ...values[line.lineId] }))
-    if (selected.some((lineId) => !isPriced(values[lineId]))) return setError('Enter a positive unit price for every checked item, or uncheck it.')
+    const lines = rfq.lines.filter((line) => touched.includes(line.lineId)).map((line) => ({
+      lineId: line.lineId, ...values[line.lineId], rate: selected.includes(line.lineId) ? values[line.lineId]?.rate || 0 : 0,
+    }))
+    if (selected.some((lineId) => touched.includes(lineId) && !isPriced(values[lineId]))) return setError('Enter a positive unit price for every checked item, or uncheck it.')
     setSaving(true)
     try {
-      await Rfqs.quote(rfq.id, { supplierId, lines, replaceLines: true })
-      setNotice(lines.length ? `Saved ${lines.length} quoted item${lines.length === 1 ? '' : 's'}. Unchecked and zero-price items are excluded.` : 'No items from this supplier are quoted.')
+      await Rfqs.quote(rfq.id, { supplierId, lines })
+      setNotice(`Saved ${lines.length} revised item${lines.length === 1 ? '' : 's'}. Other quoted items remain unchanged.`)
       setDirty(false)
       await onSaved?.()
     } catch (e) { setError(e.message) } finally { setSaving(false) }

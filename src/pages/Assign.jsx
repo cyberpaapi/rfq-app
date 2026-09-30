@@ -266,8 +266,10 @@ export default function Assign() {
           </Card>
 
           <div className="space-y-2">
-            {ranked.map(({ s, score }, i) => (
-              <Card key={s.id} className={`p-3 ${i === 0 ? 'ring-1 ring-emerald-200' : ''}`}>
+            {ranked.map(({ s, score }, i) => {
+              const selected = rfq.assignments.some((assignment) => assignment.supplierId === s.id)
+              return <Card key={s.id} className={`relative p-3 ${i === 0 ? 'ring-1 ring-emerald-200' : ''}`}>
+                {selected && <span className="absolute right-3 top-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">Selected</span>}
                 <div className="flex items-center gap-3">
                   <Avatar name={s.name} size={36} />
                   <div className="min-w-0 flex-1">
@@ -277,7 +279,7 @@ export default function Assign() {
                     </p>
                     <p className="flex items-center gap-1 text-xs text-ink-400"><Star size={11} className="fill-amber-400 text-amber-400" />{s.rating} · {s.category}</p>
                   </div>
-                  <div className="text-right">
+                  <div className={`text-right ${selected ? 'mt-6' : ''}`}>
                     <p className="text-lg font-extrabold leading-none text-ink-900">{score.toFixed(0)}</p>
                     <p className="text-[10px] uppercase text-ink-400">score</p>
                   </div>
@@ -288,11 +290,13 @@ export default function Assign() {
                   {s.tags.slice(0, 5).map((t) => <Tag key={t} tone={activeTag === t ? 'brand' : 'ink'}>{t}</Tag>)}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button disabled={busy || !rfq.lines.length || !!rfq.award || s.qualified === false} onClick={() => assign(s, 'full')} className="btn-primary flex-1 py-1.5 text-xs"><Send size={13} /> Full RFQ</button>
-                  <button disabled={busy || !sel.length || !!rfq.award || s.qualified === false} onClick={() => assign(s, 'partial')} className="btn-outline flex-1 py-1.5 text-xs"><Split size={13} /> Partial</button>
+                  {selected ? <button type="button" disabled className="flex w-full cursor-not-allowed items-center justify-center gap-1 rounded-lg bg-emerald-50 py-1.5 text-xs font-bold text-emerald-800" aria-label={`${s.name} selected for this RFQ`}><Check size={13} /> Selected</button> : <>
+                    <button disabled={busy || !rfq.lines.length || !!rfq.award || s.qualified === false} onClick={() => assign(s, 'full')} className="btn-primary flex-1 py-1.5 text-xs"><Send size={13} /> Full RFQ</button>
+                    <button disabled={busy || !sel.length || !!rfq.award || s.qualified === false} onClick={() => assign(s, 'partial')} className="btn-outline flex-1 py-1.5 text-xs"><Split size={13} /> Partial</button>
+                  </>}
                 </div>
               </Card>
-            ))}
+            } )}
             {ranked.length === 0 && <Card className="p-5"><Empty icon="suppliers" title="No suppliers match" /></Card>}
           </div>
         </div>
