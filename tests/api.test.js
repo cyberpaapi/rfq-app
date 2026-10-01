@@ -170,6 +170,7 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001', type: 'partial', lineIds: ['unknown'] })).status, 400)
     for (const supplierId of ['SUP-001', 'SUP-002']) assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId })).status, 200)
     assert.equal((await request(`/rfqs/${rfq.id}`, null, 'GET')).data.status, 'Draft')
+    assert.deepEqual((await request('/rfqs', null, 'GET')).data.find((item) => item.id === rfq.id).assignments.map((assignment) => assignment.supplierId), ['SUP-001', 'SUP-002'])
     assert.equal((await request(`/rfqs/${rfq.id}/quote`, { supplierId: 'SUP-001', lines: [{ lineId: rfq.lines[0].lineId, rate: 1 }] })).status, 409)
     assert.equal((await request(`/rfqs/${rfq.id}/status`, { status: 'Published' })).status, 200)
     assert.equal((await request(`/rfqs/${rfq.id}/assign`, { supplierId: 'SUP-001' })).status, 409)

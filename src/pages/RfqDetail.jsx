@@ -53,7 +53,7 @@ function Meta({ icon: Icon, label, value }) {
 
 export default function RfqDetail() {
   const { id } = useParams()
-  const { can } = useAuth()
+  const { can, current } = useAuth()
   const [rfq, setRfq] = useState(undefined) // undefined = loading, null = not found
   const [busy, setBusy] = useState(false)
   const [rating, setRating] = useState(null) // delivery being rated
@@ -66,6 +66,7 @@ export default function RfqDetail() {
     Rfqs.get(id).then(setRfq).catch(() => setRfq(null))
   }, [id])
   useEffect(() => { load() }, [load])
+  useEffect(() => { if (id && current?.id) localStorage.setItem(`opro.lastRfqId.${current.id}`, id) }, [id, current?.id])
   useEffect(() => { if (rfq) setCreationDateInput(rfqCreationDate(rfq)) }, [rfq?.id, rfq?.creationDate])
 
   const setStatus = async (status) => {
@@ -95,6 +96,7 @@ export default function RfqDetail() {
   const responded = new Set((rfq.quotes || []).filter((q) => q.lines?.some(isPriced)).map((q) => q.supplierId))
   const created = rfqCreationDate(rfq) || '—'
   const canCancel = ![STATUS.AWARDED, STATUS.CLOSED, STATUS.CANCELLED, STATUS.DRAFT].includes(rfq.status)
+  const canManageSuppliers = can('rfq.create') && !rfq.award && ![STATUS.AWARDED, STATUS.CLOSED, STATUS.CANCELLED].includes(rfq.status)
 
   return (
     <div className="space-y-6">
@@ -113,6 +115,7 @@ export default function RfqDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={16} /> Download RFQ</a>
+          {canManageSuppliers && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline"><Users size={16} /> Manage suppliers</Link>}
           {can('rfq.create') && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline"><Pencil size={16} /> Edit items</Link>}
           {can('rfq.evaluate') && <Link to={`/compare?rfq=${encodeURIComponent(rfq.id)}`} className="btn-outline"><GitCompareArrows size={16} /> Compare</Link>}
           {rfq.status === STATUS.DRAFT && can('rfq.publish') && (
@@ -126,6 +129,31 @@ export default function RfqDetail() {
       {statusError && <p role="alert" className="text-sm text-rose-700">{statusError}</p>}
 
       <Card className="p-6"><WorkflowTracker status={rfq.status} /></Card>
+
+      <Card className="p-5">
+        <SectionTitle art="suppliers" action={canManageSuppliers && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline"><Users size={15} /> {rfq.assignments?.length ? 'Add or change suppliers' : 'Select suppliers'}</Link>}>
+          {rfq.status === STATUS.DRAFT ? 'Selected suppliers' : 'Invited suppliers'} ({rfq.assignments?.length || 0})
+        </SectionTitle>
+        {rfq.status === STATUS.DRAFT && <p className="mb-3 text-sm text-ink-500">These selections are saved with this draft. Suppliers can see their assigned items after you publish the RFQ.</p>}
+        {(!rfq.assignments || rfq.assignments.length === 0) ? (
+          <Empty icon="suppliers" title="No suppliers selected yet" hint="Select suppliers before publishing." />
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {rfq.assignments.map((a) => (
+              <div key={a.id || a.supplierId} className="flex items-center gap-3 rounded-xl border border-ink-100 p-3">
+                <Avatar name={a.supplierName} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-ink-800">{a.supplierName}</p>
+                  <p className="text-xs text-ink-500">{a.type === 'full' ? 'Full RFQ' : `${a.lineIds?.length || 0} selected item(s)`}</p>
+                </div>
+                <span className={`chip ${rfq.status === STATUS.DRAFT ? 'bg-brand-50 text-brand-700' : responded.has(a.supplierId) ? 'bg-emerald-50 text-emerald-700' : 'bg-ink-100 text-ink-500'}`}>
+                  {rfq.status === STATUS.DRAFT ? 'Selected' : responded.has(a.supplierId) ? 'Responded' : 'Awaiting'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -165,28 +193,6 @@ export default function RfqDetail() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-5">
-            <SectionTitle>Invited Suppliers</SectionTitle>
-            {(!rfq.assignments || rfq.assignments.length === 0) ? (
-              <Empty icon="suppliers" title="No suppliers invited yet" hint="Assign suppliers before publishing." />
-            ) : (
-              <div className="space-y-2">
-                {rfq.assignments.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 rounded-xl border border-ink-100 p-3">
-                    <Avatar name={a.supplierName} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-ink-800">{a.supplierName}</p>
-                      <p className="text-xs text-ink-400">{a.type === 'full' ? 'Full RFQ' : `${a.lineIds.length} item(s)`}</p>
-                    </div>
-                    <span className={`chip ${responded.has(a.supplierId) ? 'bg-emerald-50 text-emerald-700' : 'bg-ink-100 text-ink-500'}`}>
-                      {responded.has(a.supplierId) ? 'Responded' : 'Awaiting'}
-                    </span>
-                  </div>
-                ))}
               </div>
             )}
           </Card>

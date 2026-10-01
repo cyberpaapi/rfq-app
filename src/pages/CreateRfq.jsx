@@ -33,6 +33,8 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
   const [lines, setLines] = useState(() => initialDraft?.lines || []) // selected RFQ lines
   const [suppliers, setSuppliers] = useState([])
   const [picked, setPicked] = useState([])
+  const [draftId, setDraftId] = useState('')
+  const [supplierBusy, setSupplierBusy] = useState(false)
   const [openGroups, setOpenGroups] = useState([])
   const [catFilter, setCatFilter] = useState('All')
   const [itemQuery, setItemQuery] = useState('')
@@ -90,7 +92,16 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
   const onLineChange = (i, patch) => setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
   const onLineRemove = (i) => setLines((prev) => prev.filter((_, idx) => idx !== i))
   const toggleGroup = (g) => setOpenGroups((o) => (o.includes(g) ? o.filter((x) => x !== g) : [...o, g]))
-  const toggleSupplier = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+  const toggleSupplier = async (id) => {
+    if (!draftId || supplierBusy) return
+    setSupplierBusy(true); setSaveError('')
+    try {
+      if (picked.includes(id)) await Rfqs.unassign(draftId, id)
+      else await Rfqs.assign(draftId, { supplierId: id, type: 'full' })
+      setPicked((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])
+    } catch (error) { setSaveError(error.message) }
+    finally { setSupplierBusy(false) }
+  }
 
   const importExcel = async (file) => {
     if (!file) return
@@ -117,20 +128,34 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
     step === 2 ||
     step === 3
 
-  const save = async (publish) => {
-    setSaving(true); setSaveError('')
-    try {
-      const rfq = await Rfqs.create({
+  const payload = () => ({
         title: form.title, description: form.description, creationDate: form.creationDate, category: form.category,
         currency: form.currency, deadline: form.deadline,
         deliveryLocation: form.deliveryLocation, paymentTerms: form.paymentTerms,
         lines: readyLines.map((l) => ({
-          itemId: l.itemId, sku: l.sku || '', name: l.name, spec: l.spec, description: l.description,
+          lineId: l.lineId, itemId: l.itemId, sku: l.sku || '', name: l.name, spec: l.spec, description: l.description,
           qty: Number(l.quantity) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
           secondaryRequirements: l.secondaryRequirements, remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
         })),
       })
-      for (const supplierId of picked) await Rfqs.assign(rfq.id, { supplierId, type: 'full' })
+  const upsertDraft = async () => {
+    const rfq = draftId ? await Rfqs.update(draftId, payload()) : await Rfqs.create(payload())
+    setDraftId(rfq.id)
+    let index = 0
+    setLines((previous) => previous.map((line) => typeof line.name === 'string' && line.name.trim() ? { ...line, lineId: rfq.lines[index++]?.lineId || line.lineId } : line))
+    return rfq
+  }
+  const nextStep = async () => {
+    if (step !== 1) { setStep((current) => current + 1); return }
+    setSaving(true); setSaveError('')
+    try { await upsertDraft(); setStep(2) }
+    catch (error) { setSaveError(error.message) }
+    finally { setSaving(false) }
+  }
+  const save = async (publish) => {
+    setSaving(true); setSaveError('')
+    try {
+      const rfq = await upsertDraft()
       if (publish) await Rfqs.setStatus(rfq.id, 'Published')
       nav(`/rfqs/${rfq.id}`)
     } catch (error) { setSaveError(error.message) } finally { setSaving(false) }
@@ -262,6 +287,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
         {/* STEP 2 — Suppliers */}
         {step === 2 && (
           <div>
+            {draftId && <p role="status" className="mb-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Draft {draftId} is saved. Supplier selections are saved as you make them and remain available before Publish.</p>}
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <div className="relative flex-1 min-w-48">
                 <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
@@ -279,7 +305,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
                 {sortedSuppliers.map((s) => {
                   const sel = picked.includes(s.id)
                   return (
-                    <button key={s.id} onClick={() => toggleSupplier(s.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${sel ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-500/10' : 'border-ink-100 hover:bg-ink-50'}`}>
+                    <button key={s.id} type="button" disabled={supplierBusy || s.qualified === false} aria-pressed={sel} onClick={() => toggleSupplier(s.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${sel ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-500/10' : 'border-ink-100 hover:bg-ink-50'}`}>
                       <Avatar name={s.name} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
@@ -332,13 +358,13 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
         {/* Footer nav */}
         {saveError && <p role="alert" className="mt-5 text-sm text-rose-700">{saveError}</p>}
         <div className="mt-6 flex items-center justify-between border-t border-ink-100 pt-5">
-          <button className="btn-ghost" disabled={step === 0} onClick={() => setStep((s) => s - 1)}><ArrowLeft size={16} /> Back</button>
+          <button className="btn-ghost" disabled={step === 0 || saving || supplierBusy} onClick={() => setStep((s) => s - 1)}><ArrowLeft size={16} /> Back</button>
           {step < steps.length - 1 ? (
-            <button className="btn-primary" disabled={!canNext} onClick={() => setStep((s) => s + 1)}>Next <ArrowRight size={16} /></button>
+            <button className="btn-primary" disabled={!canNext || saving || supplierBusy} onClick={nextStep}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving draft…</> : <>Next <ArrowRight size={16} /></>}</button>
           ) : (
             <div className="flex gap-2">
-              <button className="btn-outline" disabled={saving || readyLines.length === 0} onClick={() => save(false)}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Save as Draft'}</button>
-              <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={!can('rfq.publish') || saving || readyLines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish</>}</button>
+              <button className="btn-outline" disabled={saving || supplierBusy || readyLines.length === 0} onClick={() => save(false)}>{saving ? <Loader2 size={16} className="animate-spin" /> : 'Save as Draft'}</button>
+              <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={!can('rfq.publish') || saving || supplierBusy || readyLines.length === 0 || picked.length === 0} onClick={() => save(true)}>{saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : <><Check size={16} /> Publish</>}</button>
             </div>
           )}
         </div>

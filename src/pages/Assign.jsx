@@ -34,7 +34,7 @@ function ScoreBars({ scores = {}, compact }) {
 }
 
 export default function Assign() {
-  const { can } = useAuth()
+  const { can, current } = useAuth()
   const { id } = useParams()
   const nav = useNavigate()
   const [rfqs, setRfqs] = useState(null)
@@ -76,12 +76,16 @@ export default function Assign() {
   useEffect(() => {
     Rfqs.list().then((all) => {
       setRfqs(all)
-      const target = id || all[0]?.id
+      const rememberedId = localStorage.getItem(`opro.lastRfqId.${current.id}`)
+      const latestDraft = [...all].filter((item) => item.status === 'Draft').sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0]
+      const target = id || all.find((item) => item.id === rememberedId)?.id || latestDraft?.id || all[0]?.id
       if (target) loadRfq(target).catch((e) => setError(e.message))
     }).catch((e) => setError(e.message))
     Tags().then(setAllTags).catch((e) => setError(e.message))
     Suppliers.list().then((all) => setSupMap(Object.fromEntries(all.map((s) => [s.id, s])))).catch((e) => setError(e.message))
-  }, [id, loadRfq])
+  }, [id, loadRfq, current.id])
+
+  useEffect(() => { if (rfq?.id) localStorage.setItem(`opro.lastRfqId.${current.id}`, rfq.id) }, [rfq?.id, current.id])
 
   const loadSuppliers = useCallback(async () => {
     const request = ++supplierRequest.current
@@ -148,6 +152,7 @@ export default function Assign() {
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-extrabold tracking-tight text-ink-900">Assign RFQ</h1>
             <StatusBadge status={rfq.status} />
+            <span className="chip bg-brand-50 text-brand-700">{rfq.assignments?.length || 0} supplier{rfq.assignments?.length === 1 ? '' : 's'} selected</span>
           </div>
           <p className="mt-1 text-sm text-ink-500">Pick items on the left, then choose suppliers for the whole RFQ or a partial set. {rfq.status === 'Draft' ? 'Publish when ready to send.' : ''}</p>
         </div>
@@ -210,8 +215,8 @@ export default function Assign() {
 
           {rfq.assignments.length > 0 && (
             <Card className="p-5">
-              <h3 className="mb-1 font-bold text-ink-900">Current Assignments</h3>
-              <p className="mb-3 text-xs text-ink-400">Rate a supplier once their order is complete.</p>
+              <h3 className="mb-1 font-bold text-ink-900">{rfq.status === 'Draft' ? 'Selected suppliers' : 'Current assignments'}</h3>
+              <p className="mb-3 text-xs text-ink-400">{rfq.status === 'Draft' ? 'Saved with this draft. You can add or remove suppliers before publishing.' : 'Rate a supplier once their order is complete.'}</p>
               <div className="space-y-2">
                 {rfq.assignments.map((a) => (
                   <div key={a.id} className="flex items-center gap-3 rounded-xl border border-ink-100 p-3">
