@@ -210,7 +210,7 @@ router.post('/:id/score-quality', async (req, res) => {
     const snapshot = evaluationSnapshot(rfq.id)
     const reqOf = (lineId) => {
       const l = rfq.lines.find((x) => x.lineId === lineId)
-      return l ? [l.name, l.spec, l.description].filter(Boolean).join(' — ') : ''
+      return l ? [l.name, l.spec, l.description, l.brand && `Requested brand: ${l.brand}`, l.model && `Requested model: ${l.model}`].filter(Boolean).join(' — ') : ''
     }
     const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
     const pairs = []
@@ -219,7 +219,7 @@ router.post('/:id/score-quality', async (req, res) => {
       if (!(Number(l.rate) > 0)) return
       // offer = the vendor sheet's description for this item
       const vendorDesc = l.description || l.specNotes || l.remark || ''
-      pairs.push({ i: pairs.length, requirement: reqOf(l.lineId), offer: [l.name, vendorDesc].filter(Boolean).join(' — ') || '(no spec provided)' })
+      pairs.push({ i: pairs.length, requirement: reqOf(l.lineId), offer: [l.offeredName || l.name, l.offeredSpec, l.brand && `Offered brand: ${l.brand}`, l.model && `Offered model: ${l.model}`, vendorDesc].filter(Boolean).join(' — ') || '(no spec provided)' })
       ref.push({ quoteId: q.id, lineId: l.lineId })
     }))
     const scores = await scoreQuality(pairs) // { i: { score, note } }
@@ -271,7 +271,7 @@ router.post('/:id/recommend', async (req, res) => {
       quotes.forEach((q) => {
         const ql = q.lines.find((l) => l.lineId === line.lineId)
         if (!isPriced(ql) || store.find('suppliers', q.supplierId)?.qualified === false) return
-        cands.push({ id: q.supplierId, name: nameOf(q.supplierId), rate: Number(ql.rate) || 0, eta: ql.eta || '', quality: ql.qualityScore ?? null, description: ql.description || ql.specNotes || ql.remark || '' })
+        cands.push({ id: q.supplierId, name: nameOf(q.supplierId), rate: Number(ql.rate) || 0, eta: ql.eta || '', quality: ql.qualityScore ?? null, description: [ql.offeredName, ql.offeredSpec, ql.brand && `Brand: ${ql.brand}`, ql.model && `Model: ${ql.model}`, ql.description || ql.specNotes || ql.remark].filter(Boolean).join(' — ') })
       })
       if (!cands.length) return
       ref.push({ lineId: line.lineId, suppliers: cands })
@@ -555,6 +555,7 @@ async function parseQuoteFromFile(rfq, supplierId, file) {
     const q = map[i] >= 0 ? quoteLines[map[i]] : null
     return {
       lineId: line.lineId, name: line.name, qty: line.qty,
+      offeredName: q?.name || '', offeredSpec: q?.spec || '',
       rate: q ? Number(q.unitPrice) || 0 : 0,
       brand: q?.brand || '', model: q?.model || '', partNo: q?.partNo || '',
       leadTime: q?.leadTime || '', warranty: q?.warranty || '', eta: q?.eta || '', readyToSendDate: '',

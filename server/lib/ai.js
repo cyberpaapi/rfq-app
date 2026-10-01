@@ -264,12 +264,13 @@ const MATCH_MODEL = process.env.OPENAI_MATCH_MODEL || MODEL
 const MATCH_SYSTEM = `You map a SUPPLIER QUOTATION's line items onto a buyer's RFQ line items.
 For EACH rfq line (referenced by its index "i"), choose the quote line index that refers to the SAME item, or -1 if nothing matches.
 Use these signals, in priority order:
-1. QUANTITY — the same item almost always has the SAME quantity in both lists. Strong signal.
-2. Item NAME / SPECIFICATION similarity — allow synonyms, abbreviations, reordered words, brand/model differences, minor wording.
-3. ORDER — quote lines are OFTEN (not always) in the same order as the rfq lines, so a quote line at a similar position is a good tie-breaker.
+1. PRODUCT IDENTITY and technical variant (capacity, type, specification). A different BRAND or MODEL is an alternative offer, not a missing item. For example Daikin AC and Onida AC can map to the same RFQ item; preserve the offered brand/model for comparison.
+2. ORDER — most quotations follow RFQ order. Align sequentially and SKIP RFQ rows when the supplier omitted items in the middle; do not shift every later item onto the wrong row.
+3. QUANTITY — useful corroboration, but quantity alone never identifies a product.
 Rules:
 - Each quote line may be used for AT MOST ONE rfq line.
 - Return EXACTLY one entry per rfq line: its rfqIndex and the chosen quoteIndex (or -1).
+- Never force an unrelated product into a vacant RFQ row merely because its quantity or position agrees.
 - Prefer a confident -1 over a wrong match.`
 
 const MATCH_SCHEMA = {
@@ -286,31 +287,67 @@ const MATCH_SCHEMA = {
   },
 }
 
-// Token-overlap fallback (no API key) — name similarity + exact-quantity bonus
-// + small same-position bonus. Returns rfqIndex -> quoteIndex (or -1).
+const GENERIC_TOKENS = new Set(['the', 'of', 'for', 'with', 'and', 'unit', 'units', 'pcs', 'nos', 'no', 'item', 'product'])
+const TYPE_VARIANTS = new Set(['split', 'window', 'cassette', 'ducted', 'portable'])
+function tokens(text) {
+  const canonical = normalize(text).replace(/\bair[\s-]*condition(?:er|ing)?\b|\ba\s*\/\s*c\b|\bac\b/g, 'airconditioner')
+  return canonical.match(/[a-z0-9]+(?:\.[0-9]+)?/g)?.filter((token) => !GENERIC_TOKENS.has(token)) || []
+}
+function identityTokens(line) {
+  const excluded = new Set(tokens([line.brand, line.model, line.partNo].filter(Boolean).join(' ')))
+  return tokens(line.name).filter((token) => !excluded.has(token))
+}
+function overlap(a, b) {
+  if (!a.length || !b.length) return 0
+  const A = new Set(a), B = new Set(b)
+  return [...A].filter((token) => B.has(token)).length / Math.max(A.size, B.size)
+}
+function pairScore(rfq, quote) {
+  const left = identityTokens(rfq), right = identityTokens(quote)
+  const product = overlap(left, right)
+  // Neither row position nor matching quantity can justify a different product.
+  if (product < 0.25) return -Infinity
+  const leftTypes = tokens(`${rfq.name} ${rfq.spec || ''}`).filter((token) => TYPE_VARIANTS.has(token))
+  const rightTypes = tokens(`${quote.name} ${quote.spec || ''}`).filter((token) => TYPE_VARIANTS.has(token))
+  if (leftTypes.length && rightTypes.length && !overlap(leftTypes, rightTypes)) return -Infinity
+  const leftNumbers = tokens(`${rfq.name} ${rfq.spec || ''}`).filter((token) => /\d/.test(token) && !tokens(rfq.model || '').includes(token))
+  const rightNumbers = tokens(`${quote.name} ${quote.spec || ''}`).filter((token) => /\d/.test(token) && !tokens(quote.model || '').includes(token))
+  const variant = leftNumbers.length && rightNumbers.length ? overlap(leftNumbers, rightNumbers) : 0
+  if (leftNumbers.length && rightNumbers.length && !variant) return -Infinity
+  const qtyMatch = Number(rfq.qty) > 0 && Number(quote.quantity) === Number(rfq.qty)
+  const spec = overlap(tokens(rfq.spec || ''), tokens(quote.spec || ''))
+  return product * 3 + variant + spec * 0.7 + (qtyMatch ? 0.5 : 0)
+}
+
+// Sequence alignment allows gaps in either document without shifting every
+// later match. A second pass accepts clear reorderings only when unambiguous.
 function heuristicMatch(rfqLines, quoteLines) {
-  const tokens = (s) => normalize(s).split(/\s+/).filter(Boolean)
-  const sim = (a, b) => {
-    const A = new Set(tokens(a)), B = new Set(tokens(b))
-    if (!A.size || !B.size) return 0
-    let inter = 0
-    A.forEach((t) => { if (B.has(t)) inter++ })
-    return inter / Math.max(A.size, B.size)
+  const n = rfqLines.length, m = quoteLines.length
+  const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0))
+  const step = Array.from({ length: n + 1 }, () => Array(m + 1).fill(''))
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+    let best = dp[i - 1][j] - 0.15, choice = 'skipRfq'
+    if (dp[i][j - 1] - 0.15 > best) { best = dp[i][j - 1] - 0.15; choice = 'skipQuote' }
+    const score = pairScore(rfqLines[i - 1], quoteLines[j - 1])
+    if (score >= 1.3 && dp[i - 1][j - 1] + score >= best) { best = dp[i - 1][j - 1] + score; choice = 'match' }
+    dp[i][j] = best; step[i][j] = choice
   }
-  const used = new Set()
-  const map = new Array(rfqLines.length).fill(-1)
-  rfqLines.forEach((L, ri) => {
-    let best = -1, bestScore = 0
-    quoteLines.forEach((q, qi) => {
-      if (used.has(qi)) return
-      // Quantity and row position alone cannot identify a product.
-      if (sim(L.name, q.name) < 0.25) return
-      const qtyEq = Number(q.quantity) === Number(L.qty)
-      const score = sim(`${L.name} ${L.spec || ''}`, `${q.name} ${q.spec || ''}`) + (qtyEq ? 0.5 : 0) + (ri === qi ? 0.15 : 0)
-      if (score > bestScore) { bestScore = score; best = qi }
-    })
-    if (best >= 0 && bestScore >= 0.3) { map[ri] = best; used.add(best) }
-  })
+  const map = Array(n).fill(-1)
+  let i = n, j = m
+  while (i && j) {
+    const choice = step[i][j]
+    if (choice === 'match') { map[i - 1] = j - 1; i--; j-- }
+    else if (choice === 'skipRfq') i--
+    else j--
+  }
+  const used = new Set(map.filter((index) => index >= 0))
+  for (let ri = 0; ri < n; ri++) {
+    if (map[ri] >= 0) continue
+    const candidates = quoteLines.map((quote, qi) => ({ qi, score: used.has(qi) ? -Infinity : pairScore(rfqLines[ri], quote) })).sort((a, b) => b.score - a.score)
+    if (candidates[0]?.score >= 2.6 && candidates[0].score - (candidates[1]?.score ?? -Infinity) >= 0.5) {
+      map[ri] = candidates[0].qi; used.add(candidates[0].qi)
+    }
+  }
   return map
 }
 
@@ -321,12 +358,13 @@ export async function matchQuoteLines(rfqLines = [], quoteLines = []) {
   if (!process.env.OPENAI_API_KEY) return { map: heuristicMatch(rfqLines, quoteLines), engine: 'fallback' }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const rfq = rfqLines.map((l, i) => ({ i, name: l.name, spec: l.spec || '', qty: Number(l.qty) || 0, uom: l.uom || '' }))
-  const quote = quoteLines.map((q, i) => ({ i, name: q.name, spec: q.spec || '', qty: Number(q.quantity) || 0, uom: q.uom || '' }))
+  const rfq = rfqLines.map((l, i) => ({ i, name: l.name, spec: l.spec || '', brand: l.brand || '', model: l.model || '', qty: Number(l.qty) || 0, uom: l.uom || '' }))
+  const quote = quoteLines.map((q, i) => ({ i, name: q.name, spec: q.spec || '', brand: q.brand || '', model: q.model || '', qty: Number(q.quantity) || 0, uom: q.uom || '' }))
+  const ordered = heuristicMatch(rfqLines, quoteLines)
   try {
     const messages = [
       { role: 'system', content: MATCH_SYSTEM },
-      { role: 'user', content: `RFQ lines (${rfq.length}):\n${JSON.stringify(rfq)}\n\nQUOTE lines (${quote.length}):\n${JSON.stringify(quote)}` },
+      { role: 'user', content: `RFQ lines (${rfq.length}):\n${JSON.stringify(rfq)}\n\nQUOTE lines (${quote.length}):\n${JSON.stringify(quote)}\n\nSequence alignment suggestion (-1 means missing): ${JSON.stringify(ordered)}. Check technical identity and preserve gaps; correct the suggestion only when the products justify it.` },
     ]
     const resp = await loggedCompletion(client, chatParams(MATCH_MODEL, messages, MATCH_SCHEMA))
     const arr = JSON.parse(resp.choices[0].message.content || '{"matches":[]}').matches || []
@@ -338,6 +376,18 @@ export async function matchQuoteLines(rfqLines = [], quoteLines = []) {
         map[ri] = qi; used.add(qi)
       }
     }
+    // Keep unambiguous in-order anchors if the model shifted them across a gap.
+    for (let ri = 0; ri < ordered.length; ri++) {
+      const qi = ordered[ri]
+      if (qi < 0 || pairScore(rfqLines[ri], quoteLines[qi]) < 2.6) continue
+      const alternatives = quoteLines.map((line, index) => index === qi ? -Infinity : pairScore(rfqLines[ri], line))
+      if (pairScore(rfqLines[ri], quoteLines[qi]) - Math.max(...alternatives) < 0.5) continue
+      const previous = map.indexOf(qi)
+      if (previous >= 0) map[previous] = -1
+      map[ri] = qi
+    }
+    const finalUsed = new Set(map.filter((index) => index >= 0))
+    ordered.forEach((qi, ri) => { if (map[ri] < 0 && qi >= 0 && !finalUsed.has(qi)) { map[ri] = qi; finalUsed.add(qi) } })
     return { map, engine: MATCH_MODEL }
   } catch (e) {
     console.warn('[ai] quote match failed, using heuristic:', e.message)
@@ -637,6 +687,7 @@ const QUALITY_SYSTEM = `You are a procurement quality assessor. Each entry gives
    - 0 does not meet, or no usable spec was provided.
    Never return 100.
 2. "note": a SHORT comparison note (max ~18 words) stating how the offer compares to the requirement — which specs match and any gaps/deviations. If no usable spec, say "no spec provided".
+An alternate brand or model is acceptable when the technical requirements match. Mention the substitution, but do not reject or heavily penalize it solely because its brand differs unless the requirement explicitly mandates that brand.
 Return one {i, score, note} per input index.`
 const QUALITY_SCHEMA = {
   name: 'quality_scores', strict: true,

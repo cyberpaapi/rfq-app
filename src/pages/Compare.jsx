@@ -232,13 +232,16 @@ export default function Compare() {
                           )
                         })}
                         <td className="border-l border-ink-100 px-3 py-2" style={{ minWidth: 280 }}>
-                          <p className="mb-1 text-[11px] font-semibold text-ink-500">Req: <span className="font-normal text-ink-600">{[row.line.spec, row.line.description].filter(Boolean).join(' — ') || '—'}</span></p>
+                          <p className="mb-1 text-[11px] font-semibold text-ink-500">Req: <span className="font-normal text-ink-600">{[row.line.spec, row.line.description, row.line.brand && `Brand ${row.line.brand}`, row.line.model && `Model ${row.line.model}`].filter(Boolean).join(' — ') || '—'}</span></p>
                           <div className="space-y-1">
                             {supIds.map((sid) => {
                               const l = qline(sid, row.line.lineId)
                               return (
                                 <div key={sid} className={`rounded px-1.5 py-1 text-xs ${row.qualityWinner === sid ? 'bg-violet-50' : 'bg-ink-50'}`}>
                                   <span className="font-semibold text-ink-700">{nameOf(sid)}:</span>{' '}
+                                  {l?.offeredName && l.offeredName.trim().toLowerCase() !== row.line.name.trim().toLowerCase() && <span className="mr-1 rounded bg-amber-100 px-1 font-semibold text-amber-800">Offered item: {l.offeredName}</span>}
+                                  {row.line.brand && l?.brand && row.line.brand.trim().toLowerCase() !== l.brand.trim().toLowerCase() && <span className="mr-1 rounded bg-amber-100 px-1 font-semibold text-amber-800">Alternate brand: {l.brand}</span>}
+                                  {row.line.model && l?.model && row.line.model.trim().toLowerCase() !== l.model.trim().toLowerCase() && <span className="mr-1 rounded bg-amber-100 px-1 font-semibold text-amber-800">Alternate model: {l.model}</span>}
                                   <input disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} value={l?.specNotes ?? ''} placeholder="add notes…" onChange={(e) => setCell(sid, row.line.lineId, { specNotes: e.target.value })} onBlur={(e) => saveCell(sid, row.line.lineId, { specNotes: e.target.value })} className="w-[calc(100%-4rem)] rounded border border-transparent bg-transparent px-1 hover:border-ink-200 focus:border-brand-400 focus:bg-white focus:outline-none" />
                                 </div>
                               )

@@ -42,13 +42,13 @@ export default function QuoteReviewTable({ rfq, supplierId, allowImageUpload = f
             <td className="px-3 py-2 text-right">{line.qty}</td><td className="px-3 py-2">{dash(line.uom)}</td>
             <td className="px-3 py-2">{line.photo?.startsWith?.('data:image') ? <a href={line.photo} target="_blank" rel="noreferrer"><img className="h-12 w-12 rounded object-cover" src={line.photo} alt={`RFQ ${line.name}`} /></a> : dash(line.photo)}</td>
             <td className="px-3 py-2">{dash(line.remark)}</td><td className="px-3 py-2 whitespace-nowrap">{dash(line.requiredDeliveryDate)}</td><td className="px-3 py-2">{dash(line.secondaryRequirements)}</td>
-            <td className="px-3 py-2">{dash(offered?.brand)}</td><td className="px-3 py-2">{dash(offered?.model)}</td><td className="px-3 py-2">{dash(offered?.partNo)}</td>
+            <td className={`px-3 py-2 ${line.brand && offered?.brand && line.brand.trim().toLowerCase() !== offered.brand.trim().toLowerCase() ? 'bg-amber-50 font-semibold text-amber-800' : ''}`}>{dash(offered?.brand)}</td><td className={`px-3 py-2 ${line.model && offered?.model && line.model.trim().toLowerCase() !== offered.model.trim().toLowerCase() ? 'bg-amber-50 font-semibold text-amber-800' : ''}`}>{dash(offered?.model)}</td><td className="px-3 py-2">{dash(offered?.partNo)}</td>
             <td className="px-3 py-2">{image && <a href={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId)} target="_blank" rel="noreferrer"><img className="mb-1 h-12 w-12 rounded object-cover" src={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId)} alt={`Supplier ${line.name}`} /></a>}{allowImageUpload && <label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingLine === line.lineId ? 'Uploading…' : image ? 'Replace image' : 'Upload image'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" disabled={!!uploadingLine} onChange={(event) => { uploadImage(line.lineId, event.target.files?.[0]); event.target.value = '' }} /></label>}{!image && !allowImageUpload && '—'}</td>
             <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">{hasPrice ? money(Number(offered.rate)) : '—'}</td>
             <td className="px-3 py-2 text-right whitespace-nowrap">{hasPrice ? money(Number(offered.rate) * Number(line.qty || 0)) : '—'}</td>
             <td className="px-3 py-2 whitespace-nowrap">{dash(offered?.readyToSendDate)}</td>
             <td className="px-3 py-2">{dash([offered?.eta, offered?.leadTime].filter(Boolean).join(' · '))}</td>
-            <td className="px-3 py-2 text-ink-600">{dash([offered?.description, offered?.remark].filter(Boolean).join(' · '))}</td>
+            <td className="px-3 py-2 text-ink-600">{dash([offered?.offeredName && offered.offeredName !== line.name ? `Offered: ${offered.offeredName}` : '', offered?.offeredSpec, offered?.description, offered?.remark].filter(Boolean).join(' · '))}</td>
             <td className="px-3 py-2">{hasPrice ? <span className="chip bg-emerald-50 text-emerald-700">Quoted</span> : <span className="chip bg-amber-50 text-amber-700">No price</span>}</td>
           </tr>
         })}</tbody>

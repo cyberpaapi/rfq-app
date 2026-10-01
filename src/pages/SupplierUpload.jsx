@@ -83,6 +83,7 @@ export default function SupplierUpload() {
               {['queued', 'processing'].includes(latestJob.status) && <p className="mt-2 text-ink-500">Your file is stored. Processing continues after you leave.</p>}
               {stalled && <button type="button" className="btn-outline mt-2 text-xs" onClick={() => retry(latestJob.id)}>Retry processing</button>}
               {latestJob.status === 'completed' && <p className="mt-2 text-emerald-700">Processing finished. {latestJob.result?.priced || 0} item{latestJob.result?.priced === 1 ? '' : 's'} now have a price. You may close this page.</p>}
+              {latestJob.status === 'completed' && latestJob.result?.unmatched?.length > 0 && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-amber-800">No matching quote was found for: {latestJob.result.unmatched.join(', ')}. These items remain unquoted; check the table below or enter them individually.</p>}
               {latestJob.status === 'completed' && !latestJob.result?.priced && <p className="mt-2 text-amber-700">No positive prices were found in the file. Please use “Quote individual items instead” or upload a clearer response.</p>}
               {latestJob.status === 'failed' && <div className="mt-2"><p className="text-rose-700">{latestJob.error || 'Processing failed.'}</p><button type="button" className="btn-outline mt-2 text-xs" onClick={() => retry(latestJob.id)}>Retry processing</button></div>}
             </div>}

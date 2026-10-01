@@ -323,6 +323,37 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal((await asIntake('/suppliers', { name: 'Denied vendor' })).status, 403)
     assert.equal((await asIntake(`/rfqs/${mini.id}/quote`, { supplierId: supplier.data.id, lines: [{ lineId: mini.lines[0].lineId, rate: 10 }] })).status, 403)
   })
+  await t.test('quote upload maps an alternate AC brand and leaves a missing middle item unquoted', async () => {
+    const requestLines = [
+      { name: 'Daikin split AC 1 ton', brand: 'Daikin', qty: 2 },
+      { name: 'Copper cable 2.5 sqmm', qty: 10 },
+      { name: 'Office chair', qty: 5 },
+      { name: 'Wall lamp', qty: 4 },
+    ]
+    const created = (await request('/rfqs', { title: 'Alternative brand fixture', lines: requestLines })).data
+    assert.equal((await request(`/rfqs/${created.id}/assign`, { supplierId: 'SUP-001' })).status, 200)
+    assert.equal((await request(`/rfqs/${created.id}/status`, { status: 'Published' })).status, 200)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Item Name', 'Quantity', 'Brand', 'Unit Price (USD)'],
+      ['Onida split AC 1 ton', 2, 'Onida', 100],
+      ['Copper cable 2.5 sqmm', 10, '', 15],
+      ['Wall lamp', 4, '', 8],
+    ]), 'Quote')
+    const form = new FormData()
+    form.append('file', new Blob([XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'alternative.xlsx')
+    const response = await fetch(`http://localhost:${port}/api/rfqs/${created.id}/quote-upload?supplierId=SUP-001`, { method: 'POST', headers: { Cookie: adminCookie, 'x-opro-request': '1' }, body: form })
+    assert.equal(response.status, 201)
+    const result = await response.json()
+    assert.equal(result.matched, 3)
+    assert.deepEqual(result.unmatched, ['Office chair'])
+    const lines = (await request(`/rfqs/${created.id}`, null, 'GET')).data.quotes.find((quote) => quote.supplierId === 'SUP-001').lines
+    assert.deepEqual(lines.map((line) => line.lineId), [created.lines[0].lineId, created.lines[1].lineId, created.lines[3].lineId])
+    assert.equal(lines[0].rate, 100)
+    assert.equal(lines[0].brand, 'Onida')
+    assert.equal(lines[0].offeredName, 'Onida split AC 1 ton')
+    assert.equal(lines[2].rate, 8)
+  })
   await t.test('repeat submissions update selected items and canonicalize supplier identity', async () => {
     const body = { supplierId: 'SUP-001', supplierName: 'Wrong name', lines: [{ lineId: rfq.lines[0].lineId, rate: 1 }] }
     assert.equal((await request(`/rfqs/${rfq.id}/quote`, body)).status, 201)

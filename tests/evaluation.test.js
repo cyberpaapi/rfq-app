@@ -65,3 +65,35 @@ test('quote fallback never matches unrelated items just because quantities agree
   const reordered = await matchQuoteLines([{ name: 'Copper cable', qty: 10 }, { name: 'Wall lamp', qty: 2 }], [{ name: 'Wall lamp', quantity: 2 }, { name: 'Copper cable', quantity: 10 }])
   assert.deepEqual(reordered.map, [1, 0])
 })
+
+test('quote alignment accepts alternate brands and preserves gaps in mostly ordered responses', async (t) => {
+  const key = process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEY = ''
+  t.after(() => { if (key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = key })
+  const rfq = [
+    { name: 'Daikin split AC 1 ton', brand: 'Daikin', qty: 2 },
+    { name: 'Copper cable 2.5 sqmm', qty: 10 },
+    { name: 'Office chair', qty: 5 },
+    { name: 'Daikin split AC 1.5 ton', brand: 'Daikin', qty: 2 },
+    { name: 'Wall lamp', qty: 4 },
+    { name: 'Steel bracket', qty: 20 },
+    { name: 'Water pump', qty: 1 },
+    { name: 'Daikin split AC 2 ton', brand: 'Daikin', qty: 2 },
+    { name: 'Ceiling fan', qty: 6 },
+    { name: 'Garden hose', qty: 3 },
+  ]
+  const quote = [
+    { name: 'Onida split AC 1 ton', brand: 'Onida', quantity: 2 },
+    { name: 'Copper cable 2.5 sqmm', quantity: 10 },
+    { name: 'Office chair', quantity: 5 },
+    { name: 'Onida split AC 1.5 ton', brand: 'Onida', quantity: 2 },
+    { name: 'Steel bracket', quantity: 20 },
+    { name: 'Water pump', quantity: 1 },
+    { name: 'Onida split AC 2 ton', brand: 'Onida', quantity: 2 },
+    { name: 'Ceiling fan', quantity: 6 },
+    { name: 'Garden hose', quantity: 3 },
+  ]
+  assert.deepEqual((await matchQuoteLines(rfq, quote)).map, [0, 1, 2, 3, -1, 4, 5, 6, 7, 8])
+  assert.deepEqual((await matchQuoteLines([{ name: 'Split AC 1.5 ton', qty: 2 }], [{ name: 'Window AC 1.5 ton', quantity: 2 }])).map, [-1])
+  assert.deepEqual((await matchQuoteLines([{ name: 'AC', spec: 'split 1.5 ton', qty: 2 }], [{ name: 'Air conditioner', spec: 'window 1.5 ton', quantity: 2 }])).map, [-1])
+})
