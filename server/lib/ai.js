@@ -152,6 +152,35 @@ function naiveParse(text) {
   return dedup(items)
 }
 
+// Preserve explicit spreadsheet prices when AI is unavailable. The generic
+// item fallback has no price field, which previously made every quote unpriced.
+function naiveQuoteRows(extraction) {
+  const number = (value) => {
+    const cleaned = String(value ?? '').replace(/,/g, '').replace(/[^\d.\-]/g, '')
+    const parsed = Number(cleaned)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  const items = []
+  for (const sheet of extraction.sheets || []) {
+    const headers = sheet.header.map((value) => String(value).trim().toLowerCase())
+    const column = (pattern) => headers.findIndex((header) => pattern.test(header))
+    const nameAt = column(/^(item|product|material|description|name)(\b|\s|$)/)
+    const qtyAt = column(/\b(qty|quantity)\b/)
+    const unitAt = column(/\b(unit|uom)\b/)
+    const priceAt = column(/\b(unit\s*price|price\s*per\s*unit|quoted\s*price|price|rate)\b/)
+    const totalAt = column(/\b(line\s*total|amount|total)\b/)
+    if (nameAt < 0 || (priceAt < 0 && totalAt < 0)) continue
+    for (const row of sheet.rows) {
+      const name = String(row.cells[nameAt] || '').trim()
+      if (!name || /^total|subtotal|tax|gst$/i.test(name)) continue
+      const quantity = qtyAt >= 0 ? number(row.cells[qtyAt]) || 1 : 1
+      const unitPrice = priceAt >= 0 ? number(row.cells[priceAt]) : number(row.cells[totalAt]) / quantity
+      items.push({ name, spec: '', description: '', quantity, uom: unitAt >= 0 ? String(row.cells[unitAt] || 'PCS') : 'PCS', unitPrice, leadTime: '', warranty: '', pages: [row.id], sources: [`${sheet.name} R${row.excelRow}`] })
+    }
+  }
+  return items
+}
+
 async function callModel(client, content, label = '', schema = ITEM_SCHEMA, system = SYSTEM) {
   const messages = [{ role: 'system', content: system }, { role: 'user', content }]
   const resp = await loggedCompletion(client, chatParams(MODEL, messages, schema))
@@ -454,7 +483,7 @@ export async function extractItems(extraction, opts = {}) {
   const hasKey = !!process.env.OPENAI_API_KEY
   if (!hasKey) {
     const text = extraction.text || ''
-    return { items: naiveParse(text), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used naive parser.', pages: 1, chunks: 1 }
+    return { items: quote && extraction.kind === 'rows' ? naiveQuoteRows(extraction) : naiveParse(text), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used local parser.', pages: 1, chunks: 1 }
   }
 
   const extra = opts.extraInstruction ? '\n\n' + opts.extraInstruction : ''

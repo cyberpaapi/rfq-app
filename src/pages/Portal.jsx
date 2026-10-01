@@ -4,6 +4,7 @@ import { Rfqs, Suppliers } from '../api/client'
 import { Card, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import QuoteEditor from '../components/QuoteEditor'
+import QuoteReviewTable from '../components/QuoteReviewTable'
 import { isPriced } from '../../shared/evaluation'
 
 export default function Portal() {
@@ -112,37 +113,8 @@ export default function Portal() {
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
           <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>
 
-          {/* The full RFQ remains visible even when a supplier quotes only a few items. */}
-          <div className="overflow-x-auto rounded-xl border border-ink-100">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
-                  <th className="px-3 py-2.5">Item</th>
-                  <th className="px-3 py-2.5">Specification</th>
-                  <th className="px-3 py-2.5 text-right">Qty</th>
-                  <th className="px-3 py-2.5">Unit</th>
-                  {result && <th className="px-3 py-2.5 text-right">Your Rate</th>}
-                  {result && <th className="px-3 py-2.5">Status</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ink-100">
-                {myLines.map((l) => {
-                  const q = result?.quote?.lines.find((x) => x.lineId === l.lineId)
-                  const matched = q && Number(q.rate) > 0
-                  return (
-                    <tr key={l.lineId} className="align-top">
-                      <td className="px-3 py-2 font-semibold text-ink-800">{l.name}</td>
-                      <td className="px-3 py-2 text-ink-600"><span>{[l.spec, l.description, l.secondaryRequirements, [l.brand, l.model, l.partNo].filter(Boolean).join(' / '), l.requiredDeliveryDate ? `Required delivery: ${l.requiredDeliveryDate}` : ''].filter(Boolean).join(' · ') || '—'}</span></td>
-                      <td className="px-3 py-2 text-right text-ink-700">{l.qty}</td>
-                      <td className="px-3 py-2 text-ink-600">{l.uom}</td>
-                      {result && <td className="px-3 py-2 text-right font-semibold text-ink-800">{q && Number(q.rate) ? Number(q.rate).toFixed(2) : '—'}</td>}
-                      {result && <td className="px-3 py-2">{matched ? <span className="chip bg-emerald-50 text-emerald-700">matched</span> : <span className="chip bg-amber-50 text-amber-700">not found</span>}</td>}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          {/* The full RFQ and saved supplier response remain visible after a refresh. */}
+          {supplierId ? <QuoteReviewTable rfq={rfq} supplierId={supplierId} /> : <p className="text-sm text-ink-500">Select a supplier to review its assigned items and prices.</p>}
 
           {mayQuote && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} />}</div>}
 

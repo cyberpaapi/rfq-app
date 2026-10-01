@@ -4,6 +4,7 @@ import { Rfqs } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import QuoteEditor from '../components/QuoteEditor'
 import BrandIcon from '../components/BrandIcon'
+import QuoteReviewTable from '../components/QuoteReviewTable'
 
 export default function SupplierUpload() {
   const { current, logout, can } = useAuth()
@@ -88,7 +89,7 @@ export default function SupplierUpload() {
           </>}
         </>}
       </section>
-      {rfq && <details className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><summary className="cursor-pointer font-bold">View assigned RFQ items</summary><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[520px] text-sm"><thead><tr className="bg-ink-50 text-left"><th className="p-2">Item</th><th className="p-2">Details</th><th className="p-2 text-right">Quantity</th></tr></thead><tbody>{rfq.lines.map((line) => <tr key={line.lineId} className="border-t border-ink-100"><td className="p-2 font-medium">{line.name}</td><td className="p-2 text-ink-600">{[line.spec, line.description].filter(Boolean).join(' · ') || '—'}</td><td className="p-2 text-right">{line.qty} {line.uom}</td></tr>)}</tbody></table></div></details>}
+      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><QuoteReviewTable rfq={rfq} supplierId={supplierId} /></div>}
       {rfq && can('quote.submit') && <details className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><summary className="cursor-pointer font-bold">Quote individual items instead</summary><div className="mt-4"><QuoteEditor rfq={rfq} supplierId={supplierId} disabled={!!finalized} onSaved={refresh} /></div></details>}
     </div>
   </main>

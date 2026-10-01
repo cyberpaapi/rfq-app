@@ -239,6 +239,26 @@ test('procurement API regression checks on isolated data', async (t) => {
     assert.equal(job.result.total, 1)
     assert.equal((await request(`/rfqs/${mini.id}/quote-jobs/${job.id}/retry`, { supplierId: supplier.data.id }, 'POST', supplierCookie)).status, 409)
     assert.equal((await request('/rfqs', null, 'GET')).data.find((r) => r.id === mini.id).quoteCount, 0)
+    const quoteWorkbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(quoteWorkbook, XLSX.utils.aoa_to_sheet([['Item Name', 'Quantity', 'Unit', 'Unit Price (USD)', 'Amount'], ['First item', 1, 'PCS', 42.5, 42.5]]), 'Quotation')
+    const pricedForm = new FormData()
+    pricedForm.append('file', new Blob([XLSX.write(quoteWorkbook, { type: 'buffer', bookType: 'xlsx' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'priced-response.xlsx')
+    const pricedUpload = await fetch(`http://localhost:${port}/api/rfqs/${mini.id}/quote-upload-queue?supplierId=${supplier.data.id}`, {
+      method: 'POST', headers: { Cookie: supplierCookie, 'x-opro-request': '1' }, body: pricedForm,
+    })
+    assert.equal(pricedUpload.status, 202)
+    const pricedJobId = (await pricedUpload.json()).id
+    let pricedView
+    for (let i = 0; i < 40; i++) {
+      pricedView = (await request(`/rfqs/${mini.id}`, null, 'GET', supplierCookie)).data
+      if (['completed', 'failed'].includes(pricedView.quoteJobs.find((entry) => entry.id === pricedJobId)?.status)) break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    assert.equal(pricedView.quoteJobs.find((entry) => entry.id === pricedJobId)?.status, 'completed')
+    assert.equal(pricedView.quoteJobs.find((entry) => entry.id === pricedJobId)?.result.priced, 1)
+    assert.equal(pricedView.quotes[0].lines[0].rate, 42.5)
+    assert.equal(pricedView.quotes[0].lines[0].lineId, mini.lines[0].lineId)
+    assert.equal((await request(`/rfqs/${mini.id}`, null, 'GET', supplierCookie)).data.quotes[0].lines[0].rate, 42.5)
     const another = (await asIntake('/suppliers', { name: 'Uninvited vendor' })).data
     assert.equal((await asIntake(`/rfqs/${mini.id}/quote`, { supplierId: another.id, lines: [{ lineId: mini.lines[1].lineId, rate: 11 }] })).status, 400)
     assert.ok(!(await request(`/rfqs/${mini.id}`, null, 'GET')).data.assignments.some((item) => item.supplierId === another.id))
