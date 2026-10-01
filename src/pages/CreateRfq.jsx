@@ -25,6 +25,8 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
     title: '', description: '', creationDate: localToday(), currency: 'USD', deadline: '',
     deliveryLocation: '', paymentTerms: '30 days net', category: '',
   })
+  const [pendingFiles, setPendingFiles] = useState(() => initialDraft?.files || [])
+  const [uploadedFiles, setUploadedFiles] = useState([])
   const [currencyOptions, setCurrencyOptions] = useState([{ code: 'USD', name: 'US dollar', active: true }])
   const [catalogue, setCatalogue] = useState([])
   const [catalogueCategories, setCatalogueCategories] = useState([])
@@ -141,6 +143,11 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
   const upsertDraft = async () => {
     const rfq = draftId ? await Rfqs.update(draftId, payload()) : await Rfqs.create(payload())
     setDraftId(rfq.id)
+    for (const file of pendingFiles) {
+      const attachment = await Rfqs.addAttachment(rfq.id, file)
+      setUploadedFiles((previous) => [...previous, attachment])
+      setPendingFiles((previous) => previous.filter((item) => item !== file))
+    }
     let index = 0
     setLines((previous) => previous.map((line) => typeof line.name === 'string' && line.name.trim() ? { ...line, lineId: rfq.lines[index++]?.lineId || line.lineId } : line))
     return rfq
@@ -238,12 +245,10 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
               <label className="label">Supporting Documents</label>
               <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink-200 py-6 text-sm text-ink-400 hover:bg-ink-50">
                 <Upload size={16} /> Attach specs, drawings or compliance docs
-                <input type="file" hidden multiple onChange={(e) => {
-                  const names = [...e.target.files].map((f) => ({ name: f.name }))
-                  set('attachments', [...(form.attachments || []), ...names])
-                }} />
+                <input type="file" hidden multiple onChange={(e) => { setPendingFiles((previous) => [...previous, ...e.target.files]); e.target.value = '' }} />
               </label>
-              {form.attachments?.length > 0 && <p className="mt-2 text-xs text-ink-500">{form.attachments.map((a) => a.name).join(', ')}</p>}
+              {pendingFiles.length > 0 && <ul className="mt-2 space-y-1 text-xs text-ink-600">{pendingFiles.map((file, i) => <li key={`${file.name}-${i}`} className="flex items-center justify-between gap-2"><span className="truncate">{file.name} · pending upload when draft saves</span><button type="button" className="text-rose-600" onClick={() => setPendingFiles((previous) => previous.filter((_, index) => index !== i))}>Remove</button></li>)}</ul>}
+              {uploadedFiles.length > 0 && <ul className="mt-2 space-y-1 text-xs text-ink-600">{uploadedFiles.map((file) => <li key={file.id}>{file.name} · attached</li>)}</ul>}
             </div>
           </div>
         )}

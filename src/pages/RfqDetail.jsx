@@ -61,6 +61,8 @@ export default function RfqDetail() {
   const [creationDateInput, setCreationDateInput] = useState('')
   const [dateError, setDateError] = useState('')
   const [statusError, setStatusError] = useState('')
+  const [attachmentError, setAttachmentError] = useState('')
+  const [attaching, setAttaching] = useState(false)
 
   const load = useCallback(() => {
     Rfqs.get(id).then(setRfq).catch(() => setRfq(null))
@@ -81,6 +83,13 @@ export default function RfqDetail() {
     setBusy(true); setDateError('')
     try { await Rfqs.update(id, { creationDate: creationDateInput }); load() }
     catch (error) { setDateError(error.message) } finally { setBusy(false) }
+  }
+  const addAttachment = async (file) => {
+    if (!file) return
+    setAttaching(true); setAttachmentError('')
+    try { await Rfqs.addAttachment(id, file); load() }
+    catch (error) { setAttachmentError(error.message) }
+    finally { setAttaching(false) }
   }
 
   if (rfq === undefined) return <Card><Spinner label="Loading RFQ…" /></Card>
@@ -295,6 +304,8 @@ export default function RfqDetail() {
 
           <Card className="p-5">
             <SectionTitle art="source">Attachments</SectionTitle>
+            {can('rfq.create') && <label className={`btn-outline mb-3 inline-flex cursor-pointer text-sm ${attaching ? 'pointer-events-none opacity-50' : ''}`}><Paperclip size={15} /> {attaching ? 'Uploading…' : 'Add attachment'}<input type="file" hidden disabled={attaching} onChange={(event) => { addAttachment(event.target.files?.[0]); event.target.value = '' }} /></label>}
+            {attachmentError && <p role="alert" className="mb-3 text-sm text-rose-700">{attachmentError}</p>}
             {(!rfq.attachments || rfq.attachments.length === 0) ? (
               <p className="text-sm text-ink-400">No supporting documents attached.</p>
             ) : (
@@ -302,11 +313,12 @@ export default function RfqDetail() {
                 {rfq.attachments.map((f, i) => (
                   <div key={i} className="flex items-center gap-3 rounded-xl border border-ink-100 p-2.5 text-sm hover:bg-ink-50">
                     <Paperclip size={15} className="text-ink-400" />
-                    <span className="flex-1 truncate text-ink-700">{f.name || f}</span>
+                    {f.id ? <a className="flex-1 truncate font-medium text-brand-700 hover:underline" href={Rfqs.attachmentUrl(rfq.id, f.id)}>{f.name}</a> : <span className="flex-1 truncate text-ink-700">{f.name || f} (file unavailable)</span>}
                   </div>
                 ))}
               </div>
             )}
+            {(can('data.export') || can('rfq.evaluate') || can('supplier.response.edit')) && rfq.quotes?.some((quote) => quote.hasFile) && <div className="mt-5 border-t border-ink-100 pt-4"><p className="mb-2 font-semibold text-ink-800">Supplier uploaded files</p><div className="space-y-2">{rfq.quotes.filter((quote) => quote.hasFile).map((quote) => <a key={quote.supplierId} className="flex items-center gap-2 text-sm text-brand-700 hover:underline" href={Rfqs.quoteFileUrl(rfq.id, quote.supplierId)}><Download size={15} /> {quote.supplierName}: {quote.fileName || quote.source || 'response file'}</a>)}</div></div>}
           </Card>
         </div>
       </div>

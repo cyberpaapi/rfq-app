@@ -167,6 +167,9 @@ function naiveQuoteRows(extraction) {
     const nameAt = column(/^(item|product|material|description|name)(\b|\s|$)/)
     const qtyAt = column(/\b(qty|quantity)\b/)
     const unitAt = column(/\b(unit|uom)\b/)
+    const brandAt = column(/\b(brand|make)\b/)
+    const modelAt = column(/\bmodel\b/)
+    const partAt = column(/\b(part\s*(no|number)|mpn)\b/)
     const priceAt = column(/\b(unit\s*price|price\s*per\s*unit|quoted\s*price|price|rate)\b/)
     const totalAt = column(/\b(line\s*total|amount|total)\b/)
     if (nameAt < 0 || (priceAt < 0 && totalAt < 0)) continue
@@ -175,7 +178,7 @@ function naiveQuoteRows(extraction) {
       if (!name || /^total|subtotal|tax|gst$/i.test(name)) continue
       const quantity = qtyAt >= 0 ? number(row.cells[qtyAt]) || 1 : 1
       const unitPrice = priceAt >= 0 ? number(row.cells[priceAt]) : number(row.cells[totalAt]) / quantity
-      items.push({ name, spec: '', description: '', quantity, uom: unitAt >= 0 ? String(row.cells[unitAt] || 'PCS') : 'PCS', unitPrice, leadTime: '', warranty: '', pages: [row.id], sources: [`${sheet.name} R${row.excelRow}`] })
+      items.push({ name, spec: '', description: '', quantity, uom: unitAt >= 0 ? String(row.cells[unitAt] || 'PCS') : 'PCS', brand: brandAt >= 0 ? String(row.cells[brandAt] || '') : '', model: modelAt >= 0 ? String(row.cells[modelAt] || '') : '', partNo: partAt >= 0 ? String(row.cells[partAt] || '') : '', unitPrice, leadTime: '', warranty: '', pages: [row.id], sources: [`${sheet.name} R${row.excelRow}`] })
     }
   }
   return items
@@ -230,6 +233,7 @@ const QUOTE_SYSTEM = `You are reading a SUPPLIER QUOTATION. Extract EVERY quoted
 - "name": clean base product name.
 - "spec": distinguishing specification, "" if none.
 - "description": the FULL item description the supplier gives for this line — materials, model, make/brand, dimensions, standards, features, any notes in extra columns. Keep it verbatim-ish; this is what will be compared against the buyer's requirement. "" if none.
+- "brand", "model", "partNo": the supplier's offered make, model number and part number; "" when absent.
 - "quantity": quantity quoted (number, default 1).
 - "uom": short unit (Nos, PCS, KG, MTR…).
 - "unitPrice": the PER-UNIT price/rate as a NUMBER, no currency symbols. If only a line total is shown, divide it by the quantity. Use 0 if no price is present.
@@ -239,9 +243,9 @@ Be exhaustive — one item per quoted line. Ignore sub-totals, totals, taxes, an
 
 const QUOTE_FIELDS = {
   name: { type: 'string' }, spec: { type: 'string' }, description: { type: 'string' }, quantity: { type: 'number' },
-  uom: { type: 'string' }, unitPrice: { type: 'number' }, leadTime: { type: 'string' }, warranty: { type: 'string' },
+  uom: { type: 'string' }, brand: { type: 'string' }, model: { type: 'string' }, partNo: { type: 'string' }, unitPrice: { type: 'number' }, leadTime: { type: 'string' }, warranty: { type: 'string' },
 }
-const QUOTE_REQ = ['name', 'spec', 'description', 'quantity', 'uom', 'unitPrice', 'leadTime', 'warranty']
+const QUOTE_REQ = ['name', 'spec', 'description', 'quantity', 'uom', 'brand', 'model', 'partNo', 'unitPrice', 'leadTime', 'warranty']
 const QUOTE_ITEM_SCHEMA = {
   name: 'quote_items', strict: true,
   schema: { type: 'object', additionalProperties: false, properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: QUOTE_FIELDS, required: QUOTE_REQ } } }, required: ['items'] },

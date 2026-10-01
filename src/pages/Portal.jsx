@@ -112,9 +112,10 @@ export default function Portal() {
 
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
           <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>
+          {rfq.attachments?.length > 0 && <div className="mb-4 rounded-xl border border-ink-100 p-3"><h3 className="font-semibold text-ink-800">RFQ attachments</h3><div className="mt-2 flex flex-wrap gap-2">{rfq.attachments.map((file, index) => file.id ? <a key={file.id} className="btn-outline text-xs" href={Rfqs.attachmentUrl(rfq.id, file.id)}><Download size={14} /> {file.name}</a> : <span key={index} className="text-xs text-ink-500">{file.name || file} (file unavailable)</span>)}</div></div>}
 
           {/* The full RFQ and saved supplier response remain visible after a refresh. */}
-          {supplierId ? <QuoteReviewTable rfq={rfq} supplierId={supplierId} /> : <p className="text-sm text-ink-500">Select a supplier to review its assigned items and prices.</p>}
+          {supplierId ? <QuoteReviewTable rfq={rfq} supplierId={supplierId} allowImageUpload={mayQuote && !rfq.award && !['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)} onChanged={async () => setRfq(await Rfqs.get(rfqId))} /> : <p className="text-sm text-ink-500">Select a supplier to review its assigned items and prices.</p>}
 
           {mayQuote && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} />}</div>}
 

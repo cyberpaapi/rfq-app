@@ -5,6 +5,7 @@ import { localToday } from './rfqDates.js'
 export function draftFromImport(rows = [], documents = []) {
   const names = documents.map((document) => document.name).filter(Boolean)
   return {
+    files: documents.map((document) => document.file).filter(Boolean),
     form: {
       title: names[0]?.replace(/\.[^.]+$/, '') || 'Imported RFQ',
       description: names.length ? `Imported from ${names.join(', ')}` : '',

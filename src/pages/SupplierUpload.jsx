@@ -89,7 +89,8 @@ export default function SupplierUpload() {
           </>}
         </>}
       </section>
-      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><QuoteReviewTable rfq={rfq} supplierId={supplierId} /></div>}
+      {rfq?.attachments?.length > 0 && <section className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><h2 className="font-bold">RFQ attachments</h2><p className="mt-1 text-xs text-ink-500">Download the buyer’s specifications and supporting files.</p><div className="mt-3 flex flex-wrap gap-2">{rfq.attachments.map((file, index) => file.id ? <a key={file.id} className="btn-outline text-sm" href={Rfqs.attachmentUrl(rfq.id, file.id)}><Download size={15} /> {file.name}</a> : <span key={index} className="text-sm text-ink-500">{file.name || file} (file unavailable)</span>)}</div></section>}
+      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><QuoteReviewTable rfq={rfq} supplierId={supplierId} allowImageUpload={can('quote.submit') && !finalized} onChanged={refresh} /></div>}
       {rfq && can('quote.submit') && <details className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><summary className="cursor-pointer font-bold">Quote individual items instead</summary><div className="mt-4"><QuoteEditor rfq={rfq} supplierId={supplierId} disabled={!!finalized} onSaved={refresh} /></div></details>}
     </div>
   </main>

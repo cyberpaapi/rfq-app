@@ -25,6 +25,21 @@ const queuedUploadDir = () => join(process.env.RFQ_DATA_DIR || join(process.cwd(
 const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)
 const invalidateRecommendation = (id) => store.update('rfqs', id, { recommendation: null, recommendedAt: null })
 const evaluationSnapshot = (id) => JSON.stringify({ rfq: store.find('rfqs', id), quotes: store.all('quotes').filter((q) => q.rfqId === id).map(stripFile) })
+const publicAttachment = ({ data, blob, ...attachment }) => attachment
+const publicRfqFiles = (rfq) => ({ ...rfq, attachments: (rfq.attachments || []).map((file) => typeof file === 'string' ? { name: file } : publicAttachment(file)), itemImages: (rfq.itemImages || []).map(publicAttachment) })
+const storedFile = (file) => ({ id: newId('FILE'), name: file.originalname, mime: file.mimetype || 'application/octet-stream', size: file.size,
+  ...(file.blob ? { blob: file.blob } : { data: file.buffer.toString('base64') }) })
+async function sendStoredFile(res, file, inline = false) {
+  if (!file) return res.status(404).json({ error: 'File not found.' })
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  if (file.blob) return res.redirect(302, await documentDownload(file.blob))
+  if (!file.data) return res.status(404).json({ error: 'This older attachment has no saved file.' })
+  res.setHeader('Content-Type', file.mime || 'application/octet-stream')
+  const safeName = file.name.replace(/[^\x20-\x7e]|["\\]/g, '_')
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+  res.send(Buffer.from(file.data, 'base64'))
+}
 
 // Canonical workflow order (mirrors the frontend tracker).
 const WORKFLOW = ['Draft', 'Published', 'Responses Received', 'Evaluation', 'Pending Approval', 'Awarded']
@@ -58,7 +73,7 @@ const publicQuoteJob = (job) => ({ id: job.id, supplierId: job.supplierId, statu
 router.get('/', (req, res) => {
   const internal = roleCan(req.accessRole, 'workspace.view') || (!req.supplierId && (roleCan(req.accessRole, 'portal.access') || roleCan(req.accessRole, 'supplier.response.edit')))
   const list = store.all('rfqs').filter((r) => (!req.supplierId || r.status !== 'Draft') && (internal || r.assignments?.some((a) => a.supplierId === req.supplierId)))
-  res.json(list.map((r) => internal ? { ...r, quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
+  res.json(list.map((r) => internal ? { ...publicRfqFiles(r), quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
@@ -72,14 +87,61 @@ router.get('/:id', (req, res) => {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
     const lines = assignedRfqLines(rfq, req.supplierId)
     const visibleIds = new Set(lines.map((line) => line.lineId))
-    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines, quotes: quotes.filter((q) => q.supplierId === req.supplierId).map((q) => ({ ...q, lines: (q.lines || []).filter((line) => visibleIds.has(line.lineId)) })), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
+    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines, attachments: publicRfqFiles(rfq).attachments, itemImages: (rfq.itemImages || []).filter((image) => image.supplierId === req.supplierId && visibleIds.has(image.lineId)).map(publicAttachment), quotes: quotes.filter((q) => q.supplierId === req.supplierId).map((q) => ({ ...q, lines: (q.lines || []).filter((line) => visibleIds.has(line.lineId)) })), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
   }
-  res.json({ ...rfq, quoteJobs: (rfq.quoteJobs || []).map(publicQuoteJob), recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
+  res.json({ ...publicRfqFiles(rfq), quoteJobs: (rfq.quoteJobs || []).map(publicQuoteJob), recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
+})
+
+router.post('/:id/attachments', upload.single('file'), (req, res) => {
+  const rfq = store.find('rfqs', req.params.id)
+  if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+  if (!req.file) return res.status(400).json({ error: 'Choose a file.' })
+  try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/attachments` }).contentType }
+  catch (error) { return res.status(400).json({ error: error.message }) }
+  const file = storedFile(req.file)
+  store.update('rfqs', rfq.id, { attachments: [...(rfq.attachments || []), file] })
+  req.file.retainBlob = true
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Attached RFQ document', field: 'Attachments', value: file.name })
+  res.status(201).json(publicAttachment(file))
+})
+
+router.get('/:id/attachments/:fileId', async (req, res, next) => {
+  try {
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+    await sendStoredFile(res, (rfq.attachments || []).find((file) => file.id === req.params.fileId))
+  } catch (error) { next(error) }
+})
+
+router.post('/:id/item-images/:lineId', upload.single('file'), (req, res) => {
+  const rfq = store.find('rfqs', req.params.id)
+  if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+  if (rfq.status === 'Draft' || finalized(rfq)) return res.status(409).json({ error: 'This RFQ is not accepting supplier responses.' })
+  const supplierId = req.query.supplierId || req.body?.supplierId
+  if (!store.find('suppliers', supplierId) || !assignedRfqLines(rfq, supplierId).some((line) => line.lineId === req.params.lineId)) return res.status(403).json({ error: 'This item is not assigned to that supplier.' })
+  if (!req.file) return res.status(400).json({ error: 'Choose an image.' })
+  try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/item-images/${req.params.lineId}` }).contentType }
+  catch (error) { return res.status(400).json({ error: error.message }) }
+  const file = { ...storedFile(req.file), supplierId, lineId: req.params.lineId }
+  store.update('rfqs', rfq.id, { itemImages: [...(rfq.itemImages || []).filter((image) => image.supplierId !== supplierId || image.lineId !== req.params.lineId), file] })
+  req.file.retainBlob = true
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Uploaded supplier item image', field: 'Supplier response', value: `${supplierId}: ${file.name}` })
+  res.status(201).json(publicAttachment(file))
+})
+
+router.get('/:id/item-images/:lineId/:supplierId', async (req, res, next) => {
+  try {
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+    if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This image belongs to another supplier.' })
+    await sendStoredFile(res, (rfq.itemImages || []).find((image) => image.supplierId === req.params.supplierId && image.lineId === req.params.lineId), true)
+  } catch (error) { next(error) }
 })
 
 // Download the exact response document a supplier uploaded.
 router.get('/:id/quote-file/:supplierId', async (req, res, next) => {
   try {
+    if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
     const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
     if (quote?.fileBlob) {
       res.setHeader('Cache-Control', 'no-store')
@@ -448,6 +510,7 @@ router.post('/:id/quote', (req, res) => {
     const item = rfq.lines.find((r) => r.lineId === l.lineId)
     const old = existing?.lines?.find((r) => r.lineId === l.lineId) || {}
     return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate), revisedAt,
+      brand: l.brand ?? old.brand ?? '', model: l.model ?? old.model ?? '', partNo: l.partNo ?? old.partNo ?? '',
       leadTime: l.leadTime ?? old.leadTime ?? '', warranty: l.warranty ?? old.warranty ?? '',
       eta: l.eta ?? old.eta ?? '', readyToSendDate: l.readyToSendDate ?? old.readyToSendDate ?? '', remark: l.remark ?? old.remark ?? '' }
   })]
@@ -493,6 +556,7 @@ async function parseQuoteFromFile(rfq, supplierId, file) {
     return {
       lineId: line.lineId, name: line.name, qty: line.qty,
       rate: q ? Number(q.unitPrice) || 0 : 0,
+      brand: q?.brand || '', model: q?.model || '', partNo: q?.partNo || '',
       leadTime: q?.leadTime || '', warranty: q?.warranty || '', eta: q?.eta || '', readyToSendDate: '',
       remark: q?.remark || (q ? '' : 'no match found in document'),
       // raw vendor description (compared against the RFQ description during scoring)
