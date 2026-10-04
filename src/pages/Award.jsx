@@ -17,6 +17,32 @@ const CRITERIA = [
 ]
 const COLORS = ['#3563ff', '#22c55e', '#f59e0b', '#8b5cf6']
 
+function MissingItemsNotice({ lines, awarded, listId }) {
+  const [showItems, setShowItems] = useState(false)
+  if (!lines.length) return null
+
+  return (
+    <section role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p>
+          <b>{lines.length.toLocaleString()} {lines.length === 1 ? 'item' : 'items'} {awarded ? 'remain unawarded' : 'have no supplier quote'}.</b>{' '}
+          {awarded ? 'This is a partial award.' : 'You can award the quoted items; these items will remain unawarded.'}
+        </p>
+        <button type="button" className="btn-outline min-h-11 shrink-0" aria-expanded={showItems} aria-controls={listId} onClick={() => setShowItems((value) => !value)}>
+          {showItems ? 'Hide items' : 'View items'}
+        </button>
+      </div>
+      {showItems && (
+        <div id={listId} className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-amber-200 bg-white p-3">
+          <ol className="list-decimal space-y-1 pl-5">
+            {lines.map((line) => <li key={line.lineId}>{line.name || 'Unnamed item'}</li>)}
+          </ol>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function Award() {
   const { can } = useAuth()
   const [params] = useSearchParams()
@@ -107,7 +133,7 @@ export default function Award() {
   const winner = rfq.award?.type === 'full' ? rfq.award.supplierId : method === 'lowest' ? cheapest?.sid : method === 'weighted' ? ranked[0]?.sid : null
   const totalFor = (sid) => totals.find((t) => t.sid === sid)?.total || 0
   const noQuoteLines = rfq.lines.filter((line) => !quotes.some((quote) => suppliers[quote.supplierId]?.qualified !== false && isPriced(quote.lines?.find((item) => item.lineId === line.lineId))))
-  const confirmPartial = () => !noQuoteLines.length || window.confirm(`${noQuoteLines.length} item(s) have no supplier quote and will remain unawarded:\n${noQuoteLines.map((line) => `• ${line.name}`).join('\n')}\n\nAward the quoted items now?`)
+  const confirmPartial = () => !noQuoteLines.length || window.confirm(`${noQuoteLines.length.toLocaleString()} item(s) have no supplier quote and will remain unawarded. Award the quoted items now?`)
   const radarData = CRITERIA.map((c) => {
     const row = { criteria: c.label }
     supIds.forEach((sid) => (row[sid] = scoresOf(sid)[c.key]))
@@ -232,8 +258,8 @@ export default function Award() {
         {can('rfq.create') && <Link to={`/assign/${encodeURIComponent(rfq.id)}`} className="btn-outline">Edit RFQ items</Link>}
       </div>
 
-      {noQuoteLines.length > 0 && !awarded && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><b>{noQuoteLines.length} item(s) have no supplier quote.</b> A split award can proceed for the quoted items; the unquoted items will remain unawarded. <span className="mt-1 block">{noQuoteLines.map((line) => line.name).join(' · ')}</span></div>}
-      {awarded && rfq.award?.unawardedLineIds?.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><b>Partial award:</b> {rfq.award.unawardedLineIds.length} RFQ item(s) remain unawarded. {rfq.lines.filter((line) => rfq.award.unawardedLineIds.includes(line.lineId)).map((line) => line.name).join(' · ')}</div>}
+      {!awarded && <MissingItemsNotice key={`${rfq.id}-unquoted`} lines={noQuoteLines} listId="unquoted-rfq-items" />}
+      {awarded && rfq.award?.unawardedLineIds?.length > 0 && <MissingItemsNotice key={`${rfq.id}-unawarded`} lines={rfq.lines.filter((line) => rfq.award.unawardedLineIds.includes(line.lineId))} awarded listId="unawarded-rfq-items" />}
 
       <Card className="p-4">
         <div className="flex flex-wrap gap-2">
