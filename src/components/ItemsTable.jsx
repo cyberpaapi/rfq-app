@@ -51,7 +51,7 @@ function CatalogueMapper({ value, onPick }) {
 // Columns: the mandatory spec-screen set PLUS the pre-existing fields we keep
 // (Required Delivery Date, Secondary Requirements). Shared by AI Import and the
 // manual Create-RFQ wizard so both show items the same way.
-const HEADERS = ['Item Name', 'Specification', 'Brand', 'Model No.', 'Part No.', 'Quantity', 'Unit', 'Upload Photo', 'Remark', 'Required Delivery Date', 'Secondary Requirements']
+const HEADERS = ['Item Name', 'Specification', 'Brand', 'Model No.', 'Part No.', 'Quantity', 'Opro stock', 'Unit', 'Upload Photo', 'Remark', 'Required Delivery Date', 'Secondary Requirements']
 const COLSPAN = HEADERS.length + 1 // + actions column
 
 // Editable cell: clamps to 3 lines; click to expand into a full editor.
@@ -114,6 +114,7 @@ function Row({ row, i, onChange, onRemove, nameExtra, mappable }) {
         <td className="w-28 px-3 py-2"><Cell value={row.model} onChange={(v) => on({ model: v })} /></td>
         <td className="w-28 px-3 py-2"><Cell value={row.partNo} onChange={(v) => on({ partNo: v })} /></td>
         <td className="w-20 px-3 py-2"><Cell value={row.quantity} onChange={(v) => on({ quantity: v })} type="number" className="text-right" /></td>
+        <td className="w-24 px-3 py-2"><input type="number" min="0" step="1" value={row.oproStock ?? ''} onChange={(e) => on({ oproStock: e.target.value })} aria-label={`Opro stock for ${row.name || 'item'}`} placeholder="—" className="w-20 rounded-md border border-ink-200 bg-white p-1.5 text-right text-sm outline-none focus:border-brand-300" /></td>
         <td className="w-20 px-3 py-2"><Cell value={row.uom} onChange={(v) => on({ uom: v })} placeholder="Unit" /></td>
         <td className="w-32 px-3 py-2"><PhotoCell value={row.photo} onChange={(v) => on({ photo: v })} /></td>
         <td className="w-40 px-3 py-2"><Cell value={row.remark} onChange={(v) => on({ remark: v })} type="textarea" /></td>

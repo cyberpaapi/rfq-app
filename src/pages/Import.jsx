@@ -20,7 +20,7 @@ const iconFor = (name = '') => {
   return File
 }
 
-const blankRow = () => ({ name: '', spec: '', quantity: 1, uom: 'PCS', description: '', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', itemId: null, sku: '', tags: [], isNew: true, pages: [], sources: [], docId: null })
+const blankRow = () => ({ name: '', spec: '', quantity: 1, oproStock: null, uom: 'PCS', description: '', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', itemId: null, sku: '', tags: [], isNew: true, pages: [], sources: [], docId: null })
 
 const VERIFIABLE = ['pdf', 'images', 'text', 'rows']
 
@@ -79,7 +79,7 @@ export default function Import() {
       const res = await Ingest(f)
       const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
       const newDoc = { id: docId, name: f.name, file: f, sourceKind: res.sourceKind, sheets: res.sheetData || null, sourceText: res.sourceText || null }
-      const mapped = res.items.map((it) => ({ ...it, quantity: it.quantity ?? 1, remark: it.remark || '', requiredDeliveryDate: it.requiredDeliveryDate || '', secondaryRequirements: it.secondaryRequirements || '', docId }))
+      const mapped = res.items.map((it) => ({ ...it, quantity: it.quantity ?? 1, oproStock: null, remark: it.remark || '', requiredDeliveryDate: it.requiredDeliveryDate || '', secondaryRequirements: it.secondaryRequirements || '', docId }))
 
       if (append) {
         const allRows = [...(rows || []), ...mapped]

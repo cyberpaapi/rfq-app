@@ -73,7 +73,7 @@ export function AuthProvider({ children }) {
   const value = { current, roles, users, can: (permission) => roleCan(current, permission), login, logout,
     saveRole, deleteRole, saveUser, deleteUser, refreshRoles, refreshSession }
   if (loading) return <div className="p-10 text-sm text-ink-600">Checking your session…</div>
-  return <AuthContext.Provider value={value}>{current ? children : <Login error={error} />}</AuthContext.Provider>
+  return <AuthContext.Provider value={value}>{current ? children : <Login error={error} supplierPortal={window.location.pathname.startsWith('/supplier')} />}</AuthContext.Provider>
 }
 
 export const useAuth = () => useContext(AuthContext)

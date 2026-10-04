@@ -180,6 +180,7 @@ export default function RfqDetail() {
                       <th className="py-2 pr-3">Brand / Model</th>
                       <th className="py-2 pr-3">Part No.</th>
                       <th className="py-2 pr-3 text-right">Qty</th>
+                      <th className="py-2 pr-3 text-right">Opro stock</th>
                       <th className="py-2 pr-3">UOM</th>
                       <th className="py-2">Req. Delivery</th>
                     </tr>
@@ -196,6 +197,7 @@ export default function RfqDetail() {
                         <td className="py-3 pr-3 text-ink-600">{[it.brand, it.model].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="py-3 pr-3 text-ink-600">{it.partNo || '—'}</td>
                         <td className="py-3 pr-3 text-right font-semibold text-ink-800">{Number(it.qty).toLocaleString()}</td>
+                        <td className="py-3 pr-3 text-right text-ink-700">{it.oproStock ?? '—'}</td>
                         <td className="py-3 pr-3 text-ink-600">{it.uom}</td>
                         <td className="py-3 text-ink-600">{it.requiredDeliveryDate || '—'}</td>
                       </tr>

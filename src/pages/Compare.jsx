@@ -181,6 +181,7 @@ export default function Compare() {
                       <th className="px-3 py-2">#</th>
                       <th className="px-3 py-2" style={{ minWidth: 300 }}>Item</th>
                       <th className="px-3 py-2 text-right">Qty</th>
+                      <th className="px-3 py-2 text-right">Opro stock</th>
                       {supIds.map((sid) => <th key={sid} className="border-l border-ink-100 px-3 py-2 text-center" colSpan={5}>{nameOf(sid)}</th>)}
                       <th className="border-l border-ink-100 px-3 py-2" style={{ minWidth: 280 }}>Spec Notes Comparison</th>
                       <th className="border-l border-ink-100 px-3 py-2">Lower Price</th>
@@ -190,7 +191,7 @@ export default function Compare() {
                       <th className="px-3 py-2" style={{ minWidth: 240 }}>Reasoning</th>
                     </tr>
                     <tr className="border-b border-ink-100 text-left text-[10px] font-semibold uppercase tracking-wide text-ink-400">
-                      <th colSpan={3}></th>
+                      <th colSpan={4}></th>
                       {supIds.map((sid) => (
                         <Fragment key={sid}>
                           <th className="border-l border-ink-100 px-3 py-1.5 text-right">Rate</th>
@@ -211,6 +212,7 @@ export default function Compare() {
                         <td className="px-3 py-2 text-ink-400">{idx + 1}</td>
                         <td className="px-3 py-2" style={{ minWidth: 300 }}><p className="font-semibold text-ink-800">{row.line.name}</p>{(row.line.spec || row.line.description) && <p className="text-xs text-ink-400">{[row.line.spec, row.line.description].filter(Boolean).join(' — ')}</p>}</td>
                         <td className="px-3 py-2 text-right text-ink-600">{row.line.qty}</td>
+                        <td className="px-3 py-2 text-right text-ink-600">{row.line.oproStock ?? '—'}</td>
                         {supIds.map((sid) => {
                           const c = row.cells.find((x) => x.sid === sid)
                           const win = row.priceWinner === sid
@@ -259,7 +261,7 @@ export default function Compare() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-ink-100 bg-ink-50/60 font-bold">
-                      <td className="px-3 py-2" colSpan={3}>Grand Total</td>
+                      <td className="px-3 py-2" colSpan={4}>Grand Total</td>
                       {totalsBySup.map((t) => (
                         <Fragment key={t.sid}>
                           <td className="border-l border-ink-100 px-2 py-2 text-right" colSpan={2}>{fmt(t.total)}{!quoteCoverage(rfq.lines, quotes.find((q) => q.supplierId === t.sid)).complete && <span className="block text-xs font-normal text-amber-700">Incomplete quote</span>}</td>

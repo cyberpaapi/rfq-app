@@ -2,7 +2,6 @@ import { Router } from 'express'
 import * as XLSX from 'xlsx'
 import * as store from '../store.js'
 import { assignedRfqLines } from '../../shared/assignments.js'
-import { roleCan } from '../../shared/roles.js'
 
 import { isPriced } from '../../shared/evaluation.js'
 
@@ -80,16 +79,13 @@ router.get('/po/:rfqId', (req, res) => {
   sendWorkbook(res, wb, `${rfq.id}-PO.xlsx`)
 })
 
-// GET /api/export/costing/:rfqId?stock={"LN-1":10}
+// GET /api/export/costing/:rfqId
 // Two sheets: Without OPRO Stock and With OPRO Stock (net of available stock).
 router.get('/costing/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
   const winners = resolveWinners(rfq, quotes)
-
-  let stock = {}
-  try { stock = req.query.stock ? JSON.parse(req.query.stock) : {} } catch { stock = {} }
 
   const without = winners.map(({ line, supplierName, rate }) => {
     const qty = Number(line.qty) || 0
@@ -102,7 +98,7 @@ router.get('/costing/:rfqId', (req, res) => {
 
   const withStock = winners.map(({ line, supplierName, rate }) => {
     const qty = Number(line.qty) || 0
-    const onHand = Number(stock[line.lineId]) || 0
+    const onHand = Number(line.oproStock) || 0
     const net = Math.max(0, qty - onHand)
     return {
       'Item Name': line.name, 'Spec': line.spec || '', 'Vendor': supplierName,
@@ -122,7 +118,7 @@ router.get('/costing/:rfqId', (req, res) => {
 router.get('/rfq-items/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
-  const visibleLines = req.supplierId && !roleCan(req.accessRole, 'workspace.view') ? assignedRfqLines(rfq, req.supplierId) : rfq.lines
+  const visibleLines = req.supplierId ? assignedRfqLines(rfq, req.supplierId) : rfq.lines
   const rows = visibleLines.map((l, i) => ({
     'S.No': i + 1,
     'Item Name': l.name,

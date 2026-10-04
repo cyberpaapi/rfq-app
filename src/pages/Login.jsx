@@ -3,7 +3,7 @@ import { ArrowRight, LockKeyhole, UserRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import BrandIcon from '../components/BrandIcon'
 
-export default function Login({ error: sessionError = '' }) {
+export default function Login({ error: sessionError = '', supplierPortal = false }) {
   const { login } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -22,15 +22,15 @@ export default function Login({ error: sessionError = '' }) {
         <BrandIcon name="mark" size={48} />
         <div><p className="font-extrabold text-ink-900">OPRO</p><p className="text-xs text-ink-400">Procurement Suite</p></div>
       </div>
-      <h1 className="text-3xl font-extrabold tracking-tight text-ink-900">Sign in</h1>
-      <p className="mt-2 text-sm leading-6 text-ink-500">Use the username and password given to you by your administrator.</p>
+      <h1 className="text-3xl font-extrabold tracking-tight text-ink-900">{supplierPortal ? 'Supplier portal sign in' : 'Sign in'}</h1>
+      <p className="mt-2 text-sm leading-6 text-ink-500">{supplierPortal ? 'Use the supplier credentials provided by OPRO to view assigned RFQs and submit quotations.' : 'Use the username and password given to you by your administrator.'}</p>
       <form onSubmit={submit} className="mt-8 space-y-5" data-no-telemetry>
         <label className="block"><span className="label">Username</span><span className="relative block"><UserRound size={17} className="absolute left-3 top-3 text-ink-400" /><input className="input pl-10" autoComplete="username" autoFocus required value={username} onChange={(e) => setUsername(e.target.value)} /></span></label>
         <label className="block"><span className="label">Password</span><span className="relative block"><LockKeyhole size={17} className="absolute left-3 top-3 text-ink-400" /><input className="input pl-10" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></span></label>
         {(error || sessionError) && <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error || sessionError}</p>}
         <button className="btn-primary w-full justify-center py-3" disabled={busy}>{busy ? 'Signing in…' : <>Sign in <ArrowRight size={17} /></>}</button>
       </form>
-      <p className="mt-7 text-xs text-ink-400">Access is limited to accounts created by the administrator.</p>
+      <p className="mt-7 text-xs text-ink-400">{supplierPortal ? 'Need access? Ask your OPRO contact for supplier portal credentials.' : 'Access is limited to accounts created by the administrator.'}</p>
     </div>
   </div>
 }

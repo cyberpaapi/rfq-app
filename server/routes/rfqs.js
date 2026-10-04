@@ -27,6 +27,7 @@ const invalidateRecommendation = (id) => store.update('rfqs', id, { recommendati
 const evaluationSnapshot = (id) => JSON.stringify({ rfq: store.find('rfqs', id), quotes: store.all('quotes').filter((q) => q.rfqId === id).map(stripFile) })
 const publicAttachment = ({ data, blob, ...attachment }) => attachment
 const publicRfqFiles = (rfq) => ({ ...rfq, attachments: (rfq.attachments || []).map((file) => typeof file === 'string' ? { name: file } : publicAttachment(file)), itemImages: (rfq.itemImages || []).map(publicAttachment) })
+const supplierLine = ({ oproStock, ...line }) => line
 const storedFile = (file) => ({ id: newId('FILE'), name: file.originalname, mime: file.mimetype || 'application/octet-stream', size: file.size,
   ...(file.blob ? { blob: file.blob } : { data: file.buffer.toString('base64') }) })
 async function sendStoredFile(res, file, inline = false) {
@@ -53,6 +54,7 @@ const withLineIds = (lines = []) =>
     spec: l.spec || '',
     description: l.description || '',
     qty: l.qty ?? 1,
+    oproStock: l.oproStock === '' || l.oproStock == null ? null : Number(l.oproStock),
     uom: l.uom || 'PCS',
     brand: l.brand || '',
     model: l.model || '',
@@ -71,7 +73,7 @@ const publicQuoteJob = (job) => ({ id: job.id, supplierId: job.supplierId, statu
   error: job.error || '', result: job.result || null })
 
 router.get('/', (req, res) => {
-  const internal = roleCan(req.accessRole, 'workspace.view') || (!req.supplierId && (roleCan(req.accessRole, 'portal.access') || roleCan(req.accessRole, 'supplier.response.edit')))
+  const internal = !req.supplierId && (roleCan(req.accessRole, 'workspace.view') || roleCan(req.accessRole, 'portal.access') || roleCan(req.accessRole, 'supplier.response.edit'))
   const list = store.all('rfqs').filter((r) => (!req.supplierId || r.status !== 'Draft') && (internal || r.assignments?.some((a) => a.supplierId === req.supplierId)))
   res.json(list.map((r) => internal ? { ...publicRfqFiles(r), quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
 })
@@ -83,9 +85,9 @@ router.get('/:id', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id).map(stripFile)
-  if (!roleCan(req.accessRole, 'workspace.view') && req.supplierId) {
+  if (req.supplierId) {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
-    const lines = assignedRfqLines(rfq, req.supplierId)
+    const lines = assignedRfqLines(rfq, req.supplierId).map(supplierLine)
     const visibleIds = new Set(lines.map((line) => line.lineId))
     return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines, attachments: publicRfqFiles(rfq).attachments, itemImages: (rfq.itemImages || []).filter((image) => image.supplierId === req.supplierId && visibleIds.has(image.lineId)).map(publicAttachment), quotes: quotes.filter((q) => q.supplierId === req.supplierId).map((q) => ({ ...q, lines: (q.lines || []).filter((line) => visibleIds.has(line.lineId)) })), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
   }
@@ -326,7 +328,7 @@ router.post('/', (req, res) => {
   if (b.creationDate !== undefined && !validDate(b.creationDate)) return res.status(400).json({ error: 'Enter a valid RFQ creation date.' })
   if (b.lines !== undefined && !Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
   const lines = withLineIds(b.lines)
-  if (lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0)) return res.status(400).json({ error: 'Every named item needs a positive quantity.' })
+  if (lines.some((line) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0 || (line.oproStock !== null && (!Number.isSafeInteger(line.oproStock) || line.oproStock < 0)))) return res.status(400).json({ error: 'Every named item needs a positive quantity and Opro stock must be a non-negative whole number.' })
   const rfq = {
     id: newId('RFQ'),
     title: b.title?.trim() || 'Untitled RFQ',
@@ -374,9 +376,10 @@ router.put('/:id', (req, res) => {
   if (b.lines !== undefined) {
     if (!Array.isArray(b.lines)) return res.status(400).json({ error: 'Items must be an array.' })
     b.lines = withLineIds(b.lines)
-    if (b.lines.some((l) => !Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0)) return res.status(400).json({ error: 'Every named item needs a positive quantity.' })
+    if (b.lines.some((l) => !Number.isFinite(Number(l.qty)) || Number(l.qty) <= 0 || (l.oproStock !== null && (!Number.isSafeInteger(l.oproStock) || l.oproStock < 0)))) return res.status(400).json({ error: 'Every named item needs a positive quantity and Opro stock must be a non-negative whole number.' })
     if (new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Duplicate item IDs.' })
-    const changed = JSON.stringify(withLineIds(current.lines)) !== JSON.stringify(b.lines)
+    const withoutStock = (lines) => lines.map(({ oproStock, ...line }) => line)
+    const changed = JSON.stringify(withoutStock(withLineIds(current.lines))) !== JSON.stringify(withoutStock(b.lines))
     const kept = new Set(b.lines.map((l) => l.lineId))
     b.assignments = current.assignments.map((a) => ({ ...a, lineIds: a.type === 'full' ? [...kept] : a.lineIds.filter((id) => kept.has(id)) })).filter((a) => a.lineIds.length)
     if (changed) {

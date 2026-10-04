@@ -106,7 +106,7 @@ export default function Award() {
       const rate = ql ? Number(ql.rate) || 0 : 0
       const qty = Number(line.qty) || 0
       bySup[sid] ??= { supplierId: sid, supplierName: nameOf(sid), lines: [], totalCost: 0, totalQty: 0 }
-      bySup[sid].lines.push({ lineId: line.lineId, name: line.name, spec: line.spec, qty, rate, total: rate * qty })
+      bySup[sid].lines.push({ lineId: line.lineId, name: line.name, spec: line.spec, qty, oproStock: line.oproStock, rate, total: rate * qty })
       bySup[sid].totalCost += rate * qty
       bySup[sid].totalQty += qty
     }
@@ -443,7 +443,7 @@ function SupplierAwardCard({ s, suppliersForLine, onMove, reasonOf }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-ink-400">
-                <th className="py-1">Item</th><th className="py-1 text-right">Qty</th><th className="py-1 text-right">Rate</th><th className="py-1 text-right">Total</th>
+                <th className="py-1">Item</th><th className="py-1 text-right">Qty</th><th className="py-1 text-right">Opro stock</th><th className="py-1 text-right">Rate</th><th className="py-1 text-right">Total</th>
                 {onMove && <th className="py-1 text-right">Move to</th>}
               </tr>
             </thead>
@@ -454,6 +454,7 @@ function SupplierAwardCard({ s, suppliersForLine, onMove, reasonOf }) {
                   <tr key={l.lineId} className="border-t border-ink-50 align-top">
                     <td className="py-1.5 text-ink-700">{l.name}{l.spec && <span className="ml-1 text-xs text-ink-400">· {l.spec}</span>}{reasonOf && reasonOf(l.lineId) && <p className="mt-0.5 max-w-md text-xs font-normal text-amber-700">{reasonOf(l.lineId)}</p>}</td>
                     <td className="py-1.5 text-right text-ink-600">{l.qty}</td>
+                    <td className="py-1.5 text-right text-ink-600">{l.oproStock ?? '—'}</td>
                     <td className="py-1.5 text-right text-ink-600">{fmt(l.rate)}</td>
                     <td className="py-1.5 text-right font-semibold text-ink-800">{fmt(l.total)}</td>
                     {onMove && (
@@ -470,7 +471,7 @@ function SupplierAwardCard({ s, suppliersForLine, onMove, reasonOf }) {
             </tbody>
             <tfoot>
               <tr className="border-t border-ink-100 font-bold">
-                <td className="py-1.5">Total · {s.lineCount} items · {s.totalQty} qty</td><td></td><td></td>
+                <td className="py-1.5">Total · {s.lineCount} items · {s.totalQty} qty</td><td></td><td></td><td></td>
                 <td className="py-1.5 text-right text-ink-900">{fmt(s.totalCost)}</td>
                 {onMove && <td></td>}
               </tr>

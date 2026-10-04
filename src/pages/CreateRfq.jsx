@@ -136,7 +136,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
         deliveryLocation: form.deliveryLocation, paymentTerms: form.paymentTerms,
         lines: readyLines.map((l) => ({
           lineId: l.lineId, itemId: l.itemId, sku: l.sku || '', name: l.name, spec: l.spec, description: l.description,
-          qty: Number(l.quantity) || 1, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
+          qty: Number(l.quantity) || 1, oproStock: l.oproStock, uom: l.uom, brand: l.brand, model: l.model, partNo: l.partNo,
           secondaryRequirements: l.secondaryRequirements, remark: l.remark, requiredDeliveryDate: l.requiredDeliveryDate, photo: l.photo, attachment: l.attachment,
         })),
       })
@@ -344,7 +344,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
               <div className="rounded-xl border border-ink-100 p-4">
                 <p className="mb-2 font-bold text-ink-800">{readyLines.length} Items</p>
                 <ul className="space-y-1 text-sm text-ink-600">
-                  {readyLines.map((it) => <li key={it._key}>· {it.name} × {it.quantity} {it.uom}</li>)}
+                  {readyLines.map((it) => <li key={it._key}>· {it.name} × {it.quantity} {it.uom} · Opro stock: {it.oproStock ?? '—'}</li>)}
                   {readyLines.length === 0 && <li className="text-ink-400">No named items added</li>}
                 </ul>
                 {lines.length > readyLines.length && <p className="mt-2 text-xs text-amber-700">{lines.length - readyLines.length} blank item row(s) will be skipped.</p>}

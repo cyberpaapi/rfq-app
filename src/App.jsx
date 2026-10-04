@@ -54,6 +54,8 @@ function SupplierGateway() {
 }
 
 function AppShell() {
+  const { current, can } = useAuth()
+  if (current.supplierId && !can('workspace.view')) return <Navigate to="/supplier" replace />
   return (
     <Layout>
       <Routes>

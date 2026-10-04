@@ -17,6 +17,7 @@ export function draftFromImport(rows = [], documents = []) {
       name: row.name.trim(), spec: row.spec || '', description: row.description || '',
       brand: row.brand || '', model: row.model || '', partNo: row.partNo || '',
       quantity: Number(row.quantity) > 0 ? Number(row.quantity) : 1,
+      oproStock: row.oproStock ?? null,
       uom: row.uom || 'PCS', secondaryRequirements: row.secondaryRequirements || '',
       remark: row.remark || '', requiredDeliveryDate: row.requiredDeliveryDate || '',
       photo: row.photo || '', attachment: row.attachment || '',

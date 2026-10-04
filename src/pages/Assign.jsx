@@ -196,7 +196,7 @@ export default function Assign() {
                         {l.name}
                         {l.spec && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-xs font-medium text-ink-500">{l.spec}</span>}
                       </p>
-                      <p className="text-xs text-ink-400">{l.qty} {l.uom}{[l.brand, l.model].filter(Boolean).length ? ` · ${[l.brand, l.model].filter(Boolean).join(' ')}` : ''}{l.requiredDeliveryDate ? ` · by ${l.requiredDeliveryDate}` : ''}</p>
+                      <p className="text-xs text-ink-400">{l.qty} {l.uom} · Opro stock: {l.oproStock ?? '—'}{[l.brand, l.model].filter(Boolean).length ? ` · ${[l.brand, l.model].filter(Boolean).join(' ')}` : ''}{l.requiredDeliveryDate ? ` · by ${l.requiredDeliveryDate}` : ''}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1">
                       {aTo.map((a) => <span key={a.id} className="chip bg-emerald-50 text-emerald-700">{a.supplierName}</span>)}
@@ -340,7 +340,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
   useEffect(() => { if (open) { setLines(rfq.lines.map((l) => ({ ...l }))); setExpanded(null); setError('') } }, [open, rfq])
 
   const upd = (i, k, v) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, [k]: v } : l)))
-  const add = () => setLines((ls) => [...ls, { name: '', spec: '', qty: 1, uom: 'PCS', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', description: '' }])
+  const add = () => setLines((ls) => [...ls, { name: '', spec: '', qty: 1, oproStock: null, uom: 'PCS', brand: '', model: '', partNo: '', secondaryRequirements: '', remark: '', requiredDeliveryDate: '', description: '' }])
   const remove = (i) => setLines((ls) => ls.filter((_, idx) => idx !== i))
 
   const save = async () => {
@@ -348,7 +348,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
     try {
       const clean = lines.filter((l) => (l.name || '').trim()).map((l) => ({
         lineId: l.lineId, itemId: l.itemId || null, name: l.name, spec: l.spec || '', description: l.description || '',
-        qty: Number(l.qty), uom: l.uom || 'PCS', brand: l.brand || '', model: l.model || '', partNo: l.partNo || '',
+        qty: Number(l.qty), oproStock: l.oproStock, uom: l.uom || 'PCS', brand: l.brand || '', model: l.model || '', partNo: l.partNo || '',
         secondaryRequirements: l.secondaryRequirements || '',
         remark: l.remark || '', requiredDeliveryDate: l.requiredDeliveryDate || '', photo: l.photo || '', attachment: l.attachment || '',
       }))
@@ -373,6 +373,7 @@ function ItemsEditor({ open, rfq, onClose, onSaved }) {
               <input value={l.name} onChange={(e) => upd(i, 'name', e.target.value)} placeholder="Item name" className="input min-w-40 flex-1 py-1.5 font-semibold" />
               <input value={l.spec} onChange={(e) => upd(i, 'spec', e.target.value)} placeholder="spec" className="input w-32 py-1.5" />
               <input type="number" min="1" value={l.qty} onChange={(e) => upd(i, 'qty', e.target.value)} className="input w-16 py-1.5 text-right" title="Qty" />
+              <input type="number" min="0" step="1" value={l.oproStock ?? ''} onChange={(e) => upd(i, 'oproStock', e.target.value)} placeholder="Stock" aria-label={`Opro stock for ${l.name || 'item'}`} className="input w-20 py-1.5 text-right" />
               <input value={l.uom} onChange={(e) => upd(i, 'uom', e.target.value)} placeholder="UOM" className="input w-16 py-1.5" />
               <button onClick={() => remove(i)} className="rounded-lg p-1.5 text-ink-300 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={15} /></button>
             </div>
