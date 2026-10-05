@@ -30,6 +30,7 @@ export function requiredPermissions(method, path, body = {}) {
   if (path.startsWith('/rfqs')) {
     if (method === 'GET') return path.includes('/quote-file/') ? ['workspace.view|quote.submit|supplier.response.edit', 'data.export|rfq.evaluate|supplier.response.edit|quote.submit'] : ['workspace.view|portal.access|supplier.response.edit']
     if (/\/item-images\/[^/]+$/.test(path)) return ['quote.submit|supplier.response.edit']
+    if (method === 'POST' && (/\/quote-attachments$/.test(path) || /\/item-attachments\/[^/]+$/.test(path))) return ['quote.submit|supplier.response.edit']
     if (path.endsWith('/quote-upload-queue') || /\/quote-jobs\/[^/]+\/retry$/.test(path)) return ['quote.submit|supplier.response.edit']
     if (path.endsWith('/quote-upload')) return ['quote.submit|supplier.response.edit', 'ai.use']
     if (path.endsWith('/respond')) return ['quote.submit', 'ai.use']

@@ -26,7 +26,7 @@ const finalized = (rfq) => !!rfq.award || ['Awarded', 'Closed', 'Cancelled'].inc
 const invalidateRecommendation = (id) => store.update('rfqs', id, { recommendation: null, recommendedAt: null })
 const evaluationSnapshot = (id) => JSON.stringify({ rfq: store.find('rfqs', id), quotes: store.all('quotes').filter((q) => q.rfqId === id).map(stripFile) })
 const publicAttachment = ({ data, blob, ...attachment }) => attachment
-const publicRfqFiles = (rfq) => ({ ...rfq, attachments: (rfq.attachments || []).map((file) => typeof file === 'string' ? { name: file } : publicAttachment(file)), itemImages: (rfq.itemImages || []).map(publicAttachment) })
+const publicRfqFiles = (rfq) => ({ ...rfq, attachments: (rfq.attachments || []).map((file) => typeof file === 'string' ? { name: file } : publicAttachment(file)), itemImages: (rfq.itemImages || []).map(publicAttachment), supplierAttachments: (rfq.supplierAttachments || []).map(publicAttachment), itemAttachments: (rfq.itemAttachments || []).map(publicAttachment) })
 const supplierLine = ({ oproStock, ...line }) => line
 const storedFile = (file) => ({ id: newId('FILE'), name: file.originalname, mime: file.mimetype || 'application/octet-stream', size: file.size,
   ...(file.blob ? { blob: file.blob } : { data: file.buffer.toString('base64') }) })
@@ -89,7 +89,7 @@ router.get('/:id', (req, res) => {
     const assignments = rfq.assignments.filter((a) => a.supplierId === req.supplierId)
     const lines = assignedRfqLines(rfq, req.supplierId).map(supplierLine)
     const visibleIds = new Set(lines.map((line) => line.lineId))
-    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines, attachments: publicRfqFiles(rfq).attachments, itemImages: (rfq.itemImages || []).filter((image) => image.supplierId === req.supplierId && visibleIds.has(image.lineId)).map(publicAttachment), quotes: quotes.filter((q) => q.supplierId === req.supplierId).map((q) => ({ ...q, lines: (q.lines || []).filter((line) => visibleIds.has(line.lineId)) })), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
+    return res.json({ id: rfq.id, title: rfq.title, description: rfq.description, status: rfq.status, creationDate: rfqCreationDate(rfq), deadline: rfq.deadline, assignments, lines, attachments: publicRfqFiles(rfq).attachments, itemImages: (rfq.itemImages || []).filter((image) => image.supplierId === req.supplierId && visibleIds.has(image.lineId)).map(publicAttachment), supplierAttachments: (rfq.supplierAttachments || []).filter((file) => file.supplierId === req.supplierId).map(publicAttachment), itemAttachments: (rfq.itemAttachments || []).filter((file) => file.supplierId === req.supplierId && visibleIds.has(file.lineId)).map(publicAttachment), quotes: quotes.filter((q) => q.supplierId === req.supplierId).map((q) => ({ ...q, lines: (q.lines || []).filter((line) => visibleIds.has(line.lineId)) })), quoteJobs: (rfq.quoteJobs || []).filter((job) => job.supplierId === req.supplierId).map(publicQuoteJob) })
   }
   res.json({ ...publicRfqFiles(rfq), quoteJobs: (rfq.quoteJobs || []).map(publicQuoteJob), recommendation: rfq.recommendationVersion === 2 ? rfq.recommendation : null, quotes })
 })
@@ -137,6 +137,60 @@ router.get('/:id/item-images/:lineId/:supplierId', async (req, res, next) => {
     if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
     if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This image belongs to another supplier.' })
     await sendStoredFile(res, (rfq.itemImages || []).find((image) => image.supplierId === req.params.supplierId && image.lineId === req.params.lineId), true)
+  } catch (error) { next(error) }
+})
+
+// Supporting files belong to one supplier's response, either to the entire
+// quotation or to one assigned item. They are never parsed as quote sheets.
+router.post('/:id/quote-attachments', upload.single('file'), (req, res) => {
+  const rfq = store.find('rfqs', req.params.id)
+  if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+  if (rfq.status === 'Draft' || finalized(rfq)) return res.status(409).json({ error: 'This RFQ is not accepting supplier responses.' })
+  const supplierId = req.query.supplierId || req.body?.supplierId
+  if (!rfq.assignments?.some((assignment) => assignment.supplierId === supplierId)) return res.status(403).json({ error: 'This supplier is not assigned to the RFQ.' })
+  if (!req.file) return res.status(400).json({ error: 'Choose an attachment.' })
+  try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/quote-attachments` }).contentType }
+  catch (error) { return res.status(400).json({ error: error.message }) }
+  const file = { ...storedFile(req.file), supplierId }
+  store.update('rfqs', rfq.id, { supplierAttachments: [...(rfq.supplierAttachments || []), file] })
+  req.file.retainBlob = true
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Attached supplier response file', field: 'Supplier response', value: `${supplierId}: ${file.name}` })
+  res.status(201).json(publicAttachment(file))
+})
+
+router.get('/:id/quote-attachments/:fileId', async (req, res, next) => {
+  try {
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+    const file = (rfq.supplierAttachments || []).find((entry) => entry.id === req.params.fileId)
+    if (req.supplierId && file?.supplierId !== req.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
+    await sendStoredFile(res, file)
+  } catch (error) { next(error) }
+})
+
+router.post('/:id/item-attachments/:lineId', upload.single('file'), (req, res) => {
+  const rfq = store.find('rfqs', req.params.id)
+  if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+  if (rfq.status === 'Draft' || finalized(rfq)) return res.status(409).json({ error: 'This RFQ is not accepting supplier responses.' })
+  const supplierId = req.query.supplierId || req.body?.supplierId
+  if (!assignedRfqLines(rfq, supplierId).some((line) => line.lineId === req.params.lineId)) return res.status(403).json({ error: 'This item is not assigned to that supplier.' })
+  if (!req.file) return res.status(400).json({ error: 'Choose an attachment.' })
+  try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/item-attachments/${req.params.lineId}` }).contentType }
+  catch (error) { return res.status(400).json({ error: error.message }) }
+  const file = { ...storedFile(req.file), supplierId, lineId: req.params.lineId }
+  store.update('rfqs', rfq.id, { itemAttachments: [...(rfq.itemAttachments || []), file] })
+  req.file.retainBlob = true
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Attached supplier item file', field: 'Supplier response', value: `${supplierId}: ${req.params.lineId}: ${file.name}` })
+  res.status(201).json(publicAttachment(file))
+})
+
+router.get('/:id/item-attachments/:lineId/:fileId', async (req, res, next) => {
+  try {
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+    const file = (rfq.itemAttachments || []).find((entry) => entry.id === req.params.fileId && entry.lineId === req.params.lineId)
+    if (req.supplierId && (file?.supplierId !== req.supplierId || !assignedRfqLines(rfq, req.supplierId).some((line) => line.lineId === req.params.lineId))) return res.status(403).json({ error: 'This file is not assigned to your supplier.' })
+    await sendStoredFile(res, file)
   } catch (error) { next(error) }
 })
 
@@ -513,8 +567,10 @@ router.post('/:id/quote', (req, res) => {
     const item = rfq.lines.find((r) => r.lineId === l.lineId)
     const old = existing?.lines?.find((r) => r.lineId === l.lineId) || {}
     return { ...old, lineId: item.lineId, name: item.name, qty: item.qty, rate: Number(l.rate), revisedAt,
+      offeredName: l.offeredName ?? old.offeredName ?? '', description: l.description ?? old.description ?? '',
       brand: l.brand ?? old.brand ?? '', model: l.model ?? old.model ?? '', partNo: l.partNo ?? old.partNo ?? '',
       leadTime: l.leadTime ?? old.leadTime ?? '', warranty: l.warranty ?? old.warranty ?? '',
+      paymentTerms: l.paymentTerms ?? old.paymentTerms ?? '',
       eta: l.eta ?? old.eta ?? '', readyToSendDate: l.readyToSendDate ?? old.readyToSendDate ?? '', remark: l.remark ?? old.remark ?? '' }
   })]
   const quote = {
@@ -596,9 +652,11 @@ function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(
     return uploadedAt >= (previous?.lineRevisions?.[id] ?? old?.revisedAt ?? (old ? previous.submittedAt : 0) ?? 0)
   }))
   const mergedLines = [...previousLines.filter((old) => !latestIds.has(old.lineId)),
-    ...parsed.lines.filter((line) => latestIds.has(line.lineId) && isPriced(line)).map((line) => ({
-      ...line, revisedAt: uploadedAt, readyToSendDate: previousLines.find((old) => old.lineId === line.lineId)?.readyToSendDate || '',
-    }))]
+    ...parsed.lines.filter((line) => latestIds.has(line.lineId) && isPriced(line)).map((line) => {
+      const old = previousLines.find((entry) => entry.lineId === line.lineId)
+      return { ...line, revisedAt: uploadedAt, readyToSendDate: old?.readyToSendDate || '',
+        paymentTerms: old?.paymentTerms || '', leadTime: line.leadTime || old?.leadTime || '', warranty: line.warranty || old?.warranty || '' }
+    })]
   const quoteData = {
     ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
     lines: mergedLines, lineRevisions: { ...(previous?.lineRevisions || {}), ...Object.fromEntries([...latestIds].map((id) => [id, uploadedAt])) },
