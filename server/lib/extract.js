@@ -9,11 +9,30 @@ const imgMime = (e) => ({ jpg: 'jpeg', jpeg: 'jpeg', png: 'png', webp: 'webp', g
 
 // Best-effort text layer — only used by the no-API-key fallback parser.
 async function pdfText(buffer) {
+  let document
   try {
-    const { default: pdfParse } = await import('pdf-parse')
-    return ((await pdfParse(buffer)).text || '').trim()
-  } catch {
+    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    document = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: true, disableFontFace: true }).promise
+    const pages = []
+    for (let n = 1; n <= document.numPages; n++) {
+      const content = await (await document.getPage(n)).getTextContent()
+      let text = '', lastY = null
+      for (const item of content.items) {
+        if (!item.str?.trim()) continue
+        const y = item.transform?.[5]
+        if (text && lastY != null && y != null && Math.abs(y - lastY) > 3) text += '\n'
+        else if (text && !text.endsWith('\n')) text += ' '
+        text += item.str
+        lastY = y
+      }
+      pages.push(text)
+    }
+    return pages.join('\n').trim()
+  } catch (error) {
+    console.warn('[extract] PDF text layer unavailable:', error.message)
     return ''
+  } finally {
+    await document?.destroy()
   }
 }
 

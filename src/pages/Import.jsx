@@ -77,6 +77,9 @@ export default function Import() {
     setBusy(true); setError(null)
     try {
       const res = await Ingest(f)
+      if (!Array.isArray(res.items) || !res.items.some((item) => typeof item.name === 'string' && item.name.trim())) {
+        throw new Error('No procurement items were returned. Check the document and retry the upload.')
+      }
       const docId = 'doc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
       const newDoc = { id: docId, name: f.name, file: f, sourceKind: res.sourceKind, sheets: res.sheetData || null, sourceText: res.sourceText || null }
       const mapped = res.items.map((it) => ({ ...it, quantity: it.quantity ?? 1, oproStock: null, remark: it.remark || '', requiredDeliveryDate: it.requiredDeliveryDate || '', secondaryRequirements: it.secondaryRequirements || '', docId }))

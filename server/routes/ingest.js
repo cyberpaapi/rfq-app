@@ -95,7 +95,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     })
   } catch (err) {
     console.error('[ingest] error:', err)
-    res.status(500).json({ error: err.message })
+    res.status(err.status || 500).json({ error: err.message })
   }
 })
 

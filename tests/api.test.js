@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import { once } from 'node:events'
 import { hashPassword } from '../server/lib/auth.js'
 import * as XLSX from 'xlsx'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { extractDocument } from '../server/lib/extract.js'
 
 test('procurement API regression checks on isolated data', async (t) => {
   const data = await mkdtemp(join(tmpdir(), 'opro-regression-'))
@@ -40,6 +42,28 @@ test('procurement API regression checks on isolated data', async (t) => {
   assert.ok(adminCookie.startsWith('opro_session='))
   assert.equal((await request('/auth/me', null, 'GET')).data.account.username, 'admin')
   assert.equal((await request('/roles', {}, 'POST', adminCookie, { 'x-opro-request': '0' })).status, 403)
+  await t.test('RFQ import API returns seven PDF items and rejects an unreadable image', async () => {
+    const pdf = await PDFDocument.create()
+    const page = pdf.addPage([600, 800])
+    const font = await pdf.embedFont(StandardFonts.Helvetica)
+    const rows = ['Item, Quantity, UOM, Description', 'Pump, 2, Nos, 5 kW motor', 'Valve, 3, Nos, brass 25 mm', 'Pipe, 12, MTR, 40 mm steel', 'Cable, 100, MTR, 2.5 sqmm copper', 'Filter, 6, PCS, HEPA grade', 'Sensor, 4, Nos, temperature', 'Switch, 8, Nos, 16 A']
+    rows.forEach((row, index) => page.drawText(row, { x: 40, y: 740 - index * 35, size: 12, font }))
+    const send = async (buffer, filename, type) => {
+      const form = new FormData()
+      form.append('file', new Blob([buffer], { type }), filename)
+      const res = await fetch(`http://localhost:${port}/api/ingest`, { method: 'POST', headers: { Cookie: adminCookie, 'x-opro-request': '1' }, body: form })
+      return { status: res.status, data: await res.json() }
+    }
+    const pdfBytes = Buffer.from(await pdf.save())
+    assert.match((await extractDocument({ buffer: pdfBytes, filename: 'seven.pdf' })).text, /Switch, 8, Nos/)
+    const result = await send(pdfBytes, 'seven.pdf', 'application/pdf')
+    assert.equal(result.status, 200, JSON.stringify(result.data) + '\n' + output.slice(-2000))
+    assert.equal(result.data.count, 7)
+    assert.deepEqual(result.data.items.map(({ name, quantity, uom }) => [name, quantity, uom]), [['Pump', 2, 'Nos'], ['Valve', 3, 'Nos'], ['Pipe', 12, 'MTR'], ['Cable', 100, 'MTR'], ['Filter', 6, 'PCS'], ['Sensor', 4, 'Nos'], ['Switch', 8, 'Nos']])
+    const unreadable = await send(Buffer.from('not an image'), 'unreadable.png', 'image/png')
+    assert.equal(unreadable.status, 422)
+    assert.match(unreadable.data.error, /No procurement items/)
+  })
   let rfq
   await t.test('catalogue fields, full-catalogue search, pagination and metadata', async () => {
     const fields = { name: 'Catalogue source fixture', aiName: 'AI-UNIQUE-LOOKUP', description: 'Full description', sku: '00042', category: 'Custom category', subcategory: 'Custom subcategory', uom: '', partNo: 'MPN-UNIQUE-LOOKUP', unitName: 'Source unit' }

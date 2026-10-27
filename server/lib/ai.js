@@ -105,37 +105,14 @@ const uniq = (arr) => [...new Set(arr)]
 // Build a request that works regardless of which model is configured.
 const isReasoning = (model) => /^(gpt-5|o\d)/i.test(model)
 const MAX_TOKENS = Number(process.env.AI_MAX_TOKENS) || 8000
-function chatParams(model, messages, schema) {
+function chatParams(model, messages, schema, maxTokens = MAX_TOKENS) {
   const p = {
     model, messages,
-    max_completion_tokens: MAX_TOKENS,
+    max_completion_tokens: maxTokens,
     response_format: { type: 'json_schema', json_schema: schema },
   }
   if (!isReasoning(model)) p.temperature = 0
   return p
-}
-
-// Merge rows identical in BOTH name and spec — summing quantities and unioning
-// provenance (the pages / row-ranges each copy was found on).
-function dedup(items) {
-  const map = new Map()
-  for (const it of items) {
-    const name = String(it.name || '').trim()
-    if (!name) continue
-    const spec = String(it.spec || '').trim()
-    const key = normalize(name + ' | ' + spec)
-    const pages = it.pages || []
-    const sources = it.sources || []
-    if (map.has(key)) {
-      const cur = map.get(key)
-      cur.quantity += Number(it.quantity) || 0
-      cur.pages = uniq([...cur.pages, ...pages]).sort((a, b) => a - b)
-      cur.sources = uniq([...cur.sources, ...sources])
-    } else {
-      map.set(key, { ...it, name, spec, quantity: Number(it.quantity) || 1, pages: [...pages], sources: [...sources] })
-    }
-  }
-  return [...map.values()]
 }
 
 function naiveParse(text) {
@@ -149,7 +126,51 @@ function naiveParse(text) {
     const qtyCell = cells.find((c) => /^\d+(\.\d+)?$/.test(c))
     items.push({ name, spec: '', quantity: qtyCell ? Number(qtyCell) : 1, uom: 'PCS', brand: '', model: '', partNo: '', description: '', secondaryRequirements: '', pages: [], sources: ['document'] })
   }
-  return dedup(items)
+  return items
+}
+
+// Keep structured columns intact when the API key is unavailable. This covers
+// ordinary workbook/CSV rows and text-layer PDFs with a delimited item table.
+function naiveTable(header, rows, source) {
+  const h = header.map((value) => String(value).trim().toLowerCase())
+  const column = (pattern) => h.findIndex((value) => pattern.test(value))
+  const nameAt = column(/^(item|product|material|name|description)(\b|\s|$)/)
+  if (nameAt < 0) return []
+  const qtyAt = column(/\b(qty|quantity)\b/)
+  const uomAt = column(/\b(unit|uom)\b/)
+  const specAt = column(/\b(spec(?:ification)?|size|rating)\b/)
+  const descAt = column(/\b(description|details|remark)\b/)
+  const brandAt = column(/\b(brand|make)\b/)
+  const modelAt = column(/\bmodel\b/)
+  const partAt = column(/\b(part\s*(no|number)|mpn)\b/)
+  return rows.flatMap((row) => {
+    const cells = row.cells
+    const name = String(cells[nameAt] || '').trim()
+    if (!name || /^(total|subtotal|tax|gst)$/i.test(name)) return []
+    const quantity = qtyAt < 0 ? NaN : Number(String(cells[qtyAt] ?? '').replace(/,/g, ''))
+    return [{ name, spec: specAt >= 0 ? String(cells[specAt] || '') : '', quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+      uom: uomAt >= 0 ? String(cells[uomAt] || 'PCS') : 'PCS', brand: brandAt >= 0 ? String(cells[brandAt] || '') : '',
+      model: modelAt >= 0 ? String(cells[modelAt] || '') : '', partNo: partAt >= 0 ? String(cells[partAt] || '') : '',
+      description: descAt >= 0 && descAt !== nameAt ? String(cells[descAt] || '') : '', secondaryRequirements: '',
+      pages: row.id ? [row.id] : [], sources: [source(row)] }]
+  })
+}
+
+function fallbackItems(extraction, quote) {
+  if (quote && extraction.kind === 'rows') return naiveQuoteRows(extraction)
+  if (extraction.kind === 'rows') {
+    const items = (extraction.sheets || []).flatMap((sheet) => naiveTable(sheet.header, sheet.rows, (row) => `${sheet.name} R${row.excelRow}`))
+    return items.length ? items : naiveParse(extraction.text || '')
+  }
+  const text = extraction.text || ''
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (lines.length > 1 && /[,|\t]/.test(lines[0])) {
+    const delimiter = lines[0].includes('\t') ? '\t' : lines[0].includes('|') ? '|' : ','
+    const cells = (line) => line.split(delimiter).map((cell) => cell.trim())
+    const table = naiveTable(cells(lines[0]), lines.slice(1).map((line, i) => ({ cells: cells(line), id: i + 1 })), () => 'document')
+    if (table.length) return table
+  }
+  return naiveParse(text)
 }
 
 // Preserve explicit spreadsheet prices when AI is unavailable. The generic
@@ -184,14 +205,20 @@ function naiveQuoteRows(extraction) {
   return items
 }
 
-async function callModel(client, content, label = '', schema = ITEM_SCHEMA, system = SYSTEM) {
+async function callModel(client, content, label = '', schema = ITEM_SCHEMA, system = SYSTEM, maxTokens = MAX_TOKENS) {
   const messages = [{ role: 'system', content: system }, { role: 'user', content }]
-  const resp = await loggedCompletion(client, chatParams(MODEL, messages, schema))
+  const resp = await loggedCompletion(client, chatParams(MODEL, messages, schema, maxTokens))
   if (resp.choices[0].finish_reason === 'length') {
-    console.warn(`[ai] ${label} hit token cap — lower AI_PAGES_PER_CALL / AI_ROWS_PER_CALL or raise AI_MAX_TOKENS.`)
+    throw new Error(`${label} exceeded the AI response token limit`)
   }
-  try { return JSON.parse(resp.choices[0].message.content || '{"items":[]}').items || [] }
-  catch { return [] }
+  const message = resp.choices[0].message
+  if (message.refusal) throw new Error(`${label} was refused by the AI model`)
+  if (!message.content) throw new Error(`${label} returned no AI response`)
+  let parsed
+  try { parsed = JSON.parse(message.content) }
+  catch { throw new Error(`${label} returned invalid AI JSON`) }
+  if (!Array.isArray(parsed.items)) throw new Error(`${label} returned no item list`)
+  return parsed.items
 }
 
 // Spreadsheet variant: input is JSON rows, each tagged with its row number, and
@@ -534,10 +561,11 @@ export async function clusterItems(items = []) {
 
 export async function extractItems(extraction, opts = {}) {
   const quote = !!opts.quote // supplier-quote mode → extract unit prices, skip clubbing
-  const hasKey = !!process.env.OPENAI_API_KEY
+  const hasKey = !!(opts.client || process.env.OPENAI_API_KEY)
   if (!hasKey) {
-    const text = extraction.text || ''
-    return { items: quote && extraction.kind === 'rows' ? naiveQuoteRows(extraction) : naiveParse(text), clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used local parser.', pages: 1, chunks: 1 }
+    const items = fallbackItems(extraction, quote)
+    if (!items.length) throw Object.assign(new Error('No procurement items could be extracted. Check the document and try again; scanned PDFs and images require AI processing.'), { status: 422 })
+    return { items, clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used local parser. Review extracted fields before continuing.', pages: 1, chunks: 1 }
   }
 
   const extra = opts.extraInstruction ? '\n\n' + opts.extraInstruction : ''
@@ -546,36 +574,41 @@ export async function extractItems(extraction, opts = {}) {
   const rowSchema = quote ? QUOTE_ROW_SCHEMA : ROW_ITEM_SCHEMA
   const rowSystem = (quote ? QUOTE_ROW_SYSTEM : ROW_SYSTEM) + extra
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const client = opts.client || new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const { pages, units, rowLabels } = await buildChunks(extraction)
+  if (!units.length) throw Object.assign(new Error('This document has no readable pages or spreadsheet rows.'), { status: 422 })
 
   // Fan out (≤ CONCURRENCY in flight); tag every item with its provenance.
-  // A single chunk failing (rate limit, transient error) must NOT sink the whole
-  // job — it just contributes no items.
+  // Retry once, then fail the whole import so an incomplete RFQ is never shown.
   const perChunk = await mapLimit(units, CONCURRENCY, async (u) => {
-    try {
-      if (u.rowMode) {
-        // Spreadsheet rows: provenance is the exact row the model echoed back.
-        const raw = await callModel(client, u.content, u.source, rowSchema, rowSystem)
-        return raw.map((it) => {
-          const id = Number(it.sourceRow) || 0
-          const { sourceRow, ...rest } = it
-          return { ...rest, pages: id ? [id] : [], sources: id ? [rowLabels?.[id] || `Row ${id}`] : [] }
-        })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (u.rowMode) {
+          const raw = await callModel(client, u.content, u.source, rowSchema, rowSystem, MAX_TOKENS * (attempt + 1))
+          return { items: raw.map((it) => {
+            const id = Number(it.sourceRow) || 0
+            const { sourceRow, ...rest } = it
+            return { ...rest, pages: id ? [id] : [], sources: id ? [rowLabels?.[id] || `Row ${id}`] : [] }
+          }) }
+        }
+        const raw = await callModel(client, u.content, u.source, itemSchema, itemSystem, MAX_TOKENS * (attempt + 1))
+        return { items: raw.map((it) => ({ ...it, pages: u.pages, sources: [u.source] })) }
+      } catch (e) {
+        if (attempt === 0) { console.warn(`[ai] retrying ${u.source}:`, e.message); continue }
+        console.warn(`[ai] ${u.source} failed:`, e.message)
+        return { items: [], error: `${u.source}: ${e.message}` }
       }
-      const raw = await callModel(client, u.content, u.source, itemSchema, itemSystem)
-      return raw.map((it) => ({ ...it, pages: u.pages, sources: [u.source] }))
-    } catch (e) {
-      console.warn(`[ai] chunk "${u.source}" failed:`, e.message)
-      return []
     }
   })
+  const failures = perChunk.filter((result) => result.error).map((result) => result.error)
+  if (failures.length) throw Object.assign(new Error(`Document extraction failed for ${failures.length} section(s): ${failures.slice(0, 3).join('; ')}. Please retry the upload.`), { status: 502 })
 
   // Stitch in document order. NO de-duplication here — the Basic view shows
   // every individual line/row as its own item with its own provenance. The
   // Clubbed view (below) is what groups similar entries.
   const items = []
-  perChunk.forEach((arr) => arr.forEach((it) => items.push(it)))
+  perChunk.forEach(({ items: chunkItems }) => chunkItems.forEach((it) => items.push(it)))
+  if (!items.length) throw Object.assign(new Error('No procurement items were identified in this document. Check that the line items are readable and try again.'), { status: 422 })
 
   // Clubbed view (best-effort; never blocks the basic result). Skipped for quotes.
   const { clubs, engine: clubEngine } = quote ? { clubs: null, engine: null } : await clubItems(client, items)
