@@ -42,6 +42,7 @@ GENERAL:
 - quantity is a number (default 1 if absent). uom is a short unit like Nos, PCS, KG, BAG, MTR.
 - Section/zone headers are NOT items, but list every item under them (record the zone in description).
 - Read part numbers, models, brands when present; otherwise "". Do not invent values.
+- Keep item fields limited to details printed for that item. Do not copy document-level metadata (RFQ number, project name, dates, general instructions) or row/line numbers into any item's name, spec, or description. Include a section/zone only when it genuinely identifies the item's location or requirement.
 - Ignore page headers/footers, totals, taxes and terms.`
 
 const ITEM_SCHEMA = {
