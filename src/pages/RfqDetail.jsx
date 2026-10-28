@@ -9,6 +9,7 @@ import { WORKFLOW, STATUS, fmt } from '../data/mock'
 import { useAuth } from '../context/AuthContext'
 import { Card, StatusBadge, SectionTitle, Avatar, Empty, Spinner } from '../components/ui'
 import QuoteEditor from '../components/QuoteEditor'
+import SubmissionHistory from '../components/SubmissionHistory'
 import RfqTitleEditor from '../components/RfqTitleEditor'
 import { isPriced } from '../../shared/evaluation'
 import { rfqCreationDate } from '../../shared/rfqDates'
@@ -212,6 +213,14 @@ export default function RfqDetail() {
             <SectionTitle>Add/edit supplier response</SectionTitle>
             <label className="mb-4 block max-w-sm"><span className="label">Supplier</span><select className="input" value={responseSupplier} onChange={(event) => setResponseSupplier(event.target.value)}><option value="">Select invited supplier</option>{rfq.assignments.map((a) => <option key={a.supplierId} value={a.supplierId}>{a.supplierName}</option>)}</select></label>
             <QuoteEditor rfq={rfq} supplierId={responseSupplier} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={load} />
+          </Card>}
+
+          {rfq.quotes?.some((quote) => quote.submissions?.length) && <Card className="p-5">
+            <SectionTitle>Supplier submission history</SectionTitle>
+            {rfq.quotes.filter((quote) => quote.submissions?.length).map((quote) => <div key={quote.supplierId} className="mb-4">
+              <p className="font-semibold text-ink-800">{quote.supplierName}</p>
+              <SubmissionHistory rfq={rfq} supplierId={quote.supplierId} canDownload={can('data.export') || can('rfq.evaluate') || can('supplier.response.edit')} />
+            </div>)}
           </Card>}
 
           {rfq.deliveries && rfq.deliveries.length > 0 && (

@@ -118,6 +118,7 @@ export const Rfqs = {
   respond: (id, file, name) => api.uploadForm(`/rfqs/${id}/respond`, file, { name }),
   editQuote: (id, supplierId, b) => api.put(`/rfqs/${id}/quotes/${supplierId}`, b),
   quoteFileUrl: (id, supplierId) => fileUrl(`/rfqs/${id}/quote-file/${supplierId}`),
+  quoteSubmissionFileUrl: (id, supplierId, submissionId) => fileUrl(`/rfqs/${id}/quote-submissions/${supplierId}/${submissionId}/file`),
   addAttachment: (id, file) => api.upload(`/rfqs/${id}/attachments`, file),
   attachmentUrl: (id, attachmentId) => fileUrl(`/rfqs/${id}/attachments/${attachmentId}`),
   uploadItemImage: (id, lineId, file, supplierId) => api.upload(`/rfqs/${id}/item-images/${lineId}`, file, { supplierId }),

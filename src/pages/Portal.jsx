@@ -5,6 +5,7 @@ import { Card, Spinner, Empty } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import QuoteEditor from '../components/QuoteEditor'
 import QuoteReviewTable from '../components/QuoteReviewTable'
+import SubmissionHistory from '../components/SubmissionHistory'
 import { isPriced } from '../../shared/evaluation'
 
 export default function Portal() {
@@ -116,6 +117,7 @@ export default function Portal() {
 
           {/* The full RFQ and saved supplier response remain visible after a refresh. */}
           {supplierId ? <QuoteReviewTable rfq={rfq} supplierId={supplierId} allowImageUpload={mayQuote && !rfq.award && !['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)} onChanged={async () => setRfq(await Rfqs.get(rfqId))} /> : <p className="text-sm text-ink-500">Select a supplier to review its assigned items and prices.</p>}
+          {supplierId && <SubmissionHistory rfq={rfq} supplierId={supplierId} />}
 
           {mayQuote && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} />}</div>}
 

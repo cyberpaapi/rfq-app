@@ -79,7 +79,23 @@ router.get('/', (req, res) => {
 })
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
-const stripFile = (q) => { const { fileData, fileBlob, ...rest } = q; return { ...rest, hasFile: !!fileData || !!fileBlob, fileExpiresAt: fileBlob?.expiresAt || null } }
+const publicSubmission = ({ fileData, fileBlob, ...entry }) => ({ ...entry, hasFile: !!fileData || !!fileBlob })
+const stripFile = (q) => {
+  const { fileData, fileBlob, ...rest } = q
+  return { ...rest, submissions: previousSubmissions(q).map(publicSubmission), hasFile: !!fileData || !!fileBlob, fileExpiresAt: fileBlob?.expiresAt || null }
+}
+const submission = (quote, { kind, at, actorName, changedLineIds, file = null }) => ({
+  id: newId('QSUB'), kind, at, actor: actorName, changedLineIds,
+  lines: structuredClone(quote.lines || []), sourceCurrency: quote.sourceCurrency || quote.currency || 'USD',
+  ...(file ? { fileName: file.originalname, fileMime: file.mimetype || 'application/octet-stream',
+    fileBlob: file.blob || null, fileData: file.blob ? null : file.buffer.toString('base64') } : {}),
+})
+const previousSubmissions = (quote) => quote?.submissions?.length ? quote.submissions : quote?.submittedAt ? [
+  { id: `${quote.id}-initial`, kind: quote.fileName ? 'upload' : 'items', at: quote.submittedAt,
+    actor: 'Earlier submission', changedLineIds: (quote.lines || []).map((line) => line.lineId),
+    lines: structuredClone(quote.lines || []), sourceCurrency: quote.sourceCurrency || quote.currency || 'USD',
+    ...(quote.fileName ? { fileName: quote.fileName, fileMime: quote.fileMime, fileBlob: quote.fileBlob, fileData: quote.fileData } : {}) },
+] : []
 
 router.get('/:id', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
@@ -210,6 +226,18 @@ router.get('/:id/quote-file/:supplierId', async (req, res, next) => {
   } catch (error) { next(error) }
 })
 
+router.get('/:id/quote-submissions/:supplierId/:submissionId/file', async (req, res, next) => {
+  try {
+    if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
+    const rfq = store.find('rfqs', req.params.id)
+    if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
+    const quote = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === req.params.supplierId)
+    const entry = quote && previousSubmissions(quote).find((s) => s.id === req.params.submissionId)
+    if (!entry?.fileBlob && !entry?.fileData) return res.status(404).json({ error: 'No file saved for this submission.' })
+    await sendStoredFile(res, { blob: entry.fileBlob, data: entry.fileData, name: entry.fileName || 'response', mime: entry.fileMime })
+  } catch (error) { next(error) }
+})
+
 // Edit a supplier's quote in the comparison grid — merge per-line patches
 // (rate / eta / specNotes / qualityScore) by lineId. `etaAll` sets one ETA on
 // every line (a whole-consignment ETA).
@@ -247,9 +275,12 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
     if (etaAll !== undefined && (p.eta === undefined)) merged.eta = etaAll
     return merged
   })
+  const revised = { ...quote, lines: next }
   const updated = store.update('quotes', quote.id, { lines: next,
     lineRevisions: { ...(quote.lineRevisions || {}), ...Object.fromEntries(priceIds.map((id) => [id, priceRevisionAt])) },
-    submittedAt: priceIds.length ? priceRevisionAt : quote.submittedAt })
+    submittedAt: priceIds.length ? priceRevisionAt : quote.submittedAt,
+    submissions: [...previousSubmissions(quote), submission(revised, { kind: 'internal edit', at: priceRevisionAt,
+      actorName: actor(req), changedLineIds: [...new Set([...lines.map((line) => line.lineId), ...(etaAll !== undefined ? next.map((line) => line.lineId) : [])])] })] })
   invalidateRecommendation(rfq.id)
   res.json(stripFile(updated))
 })
@@ -584,8 +615,10 @@ router.post('/:id/quote', (req, res) => {
     notes: b.notes ?? existing?.notes ?? '',
     submittedAt: revisedAt,
   }
+  quote.submissions = [...previousSubmissions(existing), submission(quote, { kind: 'items', at: revisedAt,
+    actorName: actor(req), changedLineIds: b.lines.map((line) => line.lineId) })]
   if (!lines.length) {
-    store.remove('quotes', existing.id)
+    store.update('quotes', existing.id, quote)
     invalidateRecommendation(rfq.id)
     if (rfq.status === 'Responses Received' && !store.all('quotes').some((q) => q.rfqId === rfq.id && q.lines?.some(isPriced))) store.update('rfqs', rfq.id, { status: 'Published' })
     store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Cleared supplier quotation', field: 'Quotes', value: supplier.name })
@@ -666,9 +699,17 @@ function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(
     fileMime: file.mimetype || 'application/octet-stream', fileName: file.originalname,
     currency: 'USD', sourceCurrency: parsed.currency, fxRate: parsed.rate, fxSource: parsed.rateSource, submittedAt: Math.max(uploadedAt, previous?.submittedAt || 0),
   }
-  if (previous && !latestIds.size) return { quote: { ...stripFile(previous), lines: previousLines }, engine: parsed.engine, matchEngine: parsed.matchEngine,
-    currency: parsed.currency, rate: parsed.rate, rateSource: parsed.rateSource, usedUsdColumn: parsed.usedUsdColumn,
-    extracted: parsed.extracted, matched: 0, total: parsed.total, unmatched: parsed.unmatched }
+  if (previous && !latestIds.size) {
+    const unchanged = store.update('quotes', previous.id, { submissions: [...previousSubmissions(previous),
+      submission({ ...previous, lines: previousLines }, { kind: 'upload', at: uploadedAt, actorName: supplier.name,
+        changedLineIds: [], file })] })
+    file.retainBlob = true
+    return { quote: stripFile(unchanged), engine: parsed.engine, matchEngine: parsed.matchEngine,
+      currency: parsed.currency, rate: parsed.rate, rateSource: parsed.rateSource, usedUsdColumn: parsed.usedUsdColumn,
+      extracted: parsed.extracted, matched: 0, total: parsed.total, unmatched: parsed.unmatched }
+  }
+  quoteData.submissions = [...previousSubmissions(previous), submission(quoteData, { kind: 'upload', at: uploadedAt,
+    actorName: supplier.name, changedLineIds: [...latestIds], file })]
   invalidateRecommendation(rfq.id)
   const quote = previous ? store.update('quotes', previous.id, quoteData) : store.insert('quotes', quoteData)
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
