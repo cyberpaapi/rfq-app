@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts'
 import { Award as AwardIcon, Trophy, Check, X, Lock, ShieldCheck, Split, ChevronRight, Sparkles, Wand2 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { isPriced, quoteCoverage, scoreCandidates } from '../../shared/evaluation'
+import { isPriced, quoteCoverage, quoteComparisonTotals, scoreCandidates } from '../../shared/evaluation'
 import { Rfqs, Suppliers, Reports } from '../api/client'
 import { fmt } from '../data/mock'
 import { Card, SectionTitle, Avatar, Spinner, Empty } from '../components/ui'
@@ -55,6 +55,7 @@ export default function Award() {
   const [weights, setWeights] = useState({ price: 40, quality: 35, delivery: 25 })
   const [method, setMethod] = useState(() => params.get('method') === 'ai' ? 'ai' : 'lowest')
   const [busy, setBusy] = useState(false)
+  const [savingCharge, setSavingCharge] = useState('')
   const [toast, setToast] = useState(null)
   const [allocation, setAllocation] = useState(null) // lineId -> supplierId
   const [selectedQuoteIds, setSelectedQuoteIds] = useState({}) // supplierId -> quote id
@@ -93,6 +94,7 @@ export default function Award() {
   const nameOf = (sid) => quotes.find((q) => q.supplierId === sid)?.supplierName || suppliers[sid]?.name || sid || 'No eligible supplier'
 
   const totals = quotes.map((q) => ({ sid: q.supplierId, ...quoteCoverage(rfq?.lines || [], q) }))
+  const comparisonTotals = quotes.map((q) => ({ sid: q.supplierId, quoteId: q.id, ...quoteComparisonTotals(rfq?.lines || [], q) }))
   const eligibleTotals = totals.filter((t) => t.complete && suppliers[t.sid]?.qualified !== false)
   const totalWeight = weights.price + weights.quality + weights.delivery
   const ranked = scoreCandidates(eligibleTotals.map((t) => {
@@ -145,6 +147,7 @@ export default function Award() {
   const winner = rfq.award?.type === 'full' ? rfq.award.supplierId : method === 'lowest' ? cheapest?.sid : method === 'weighted' ? ranked[0]?.sid : null
   const totalFor = (sid) => totals.find((t) => t.sid === sid)?.total || 0
   const noQuoteLines = rfq.lines.filter((line) => !quotes.some((quote) => suppliers[quote.supplierId]?.qualified !== false && isPriced(quote.lines?.find((item) => item.lineId === line.lineId))))
+  const quotedItems = rfq.lines.map((line) => ({ line, offers: quotes.map((quote) => ({ quote, item: quote.lines?.find((item) => item.lineId === line.lineId) })).filter(({ quote, item }) => suppliers[quote.supplierId]?.qualified !== false && isPriced(item)) })).filter(({ offers }) => offers.length)
   const confirmPartial = () => !noQuoteLines.length || window.confirm(`${noQuoteLines.length.toLocaleString()} item(s) have no supplier quote and will remain unawarded. Award the quoted items now?`)
   const radarData = CRITERIA.map((c) => {
     const row = { criteria: c.label }
@@ -153,6 +156,15 @@ export default function Award() {
   })
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2600) }
+  const updateCharge = (quoteId, field, value) => setRfq((previous) => ({ ...previous, quotes: previous.quotes.map((quote) => quote.id === quoteId ? { ...quote, [field]: value } : quote) }))
+  const saveCharge = async (quoteId, field, value) => {
+    setSavingCharge(`${quoteId}:${field}`)
+    try {
+      const updated = await Rfqs.editQuote(rfqId, quoteId, { [field]: value === '' ? 0 : Number(value) })
+      setRfq((previous) => ({ ...previous, quotes: previous.quotes.map((quote) => quote.id === quoteId ? { ...quote, [field]: updated[field] } : quote) }))
+    } catch (failure) { flash(`Charge save failed: ${failure.message}`); load() }
+    finally { setSavingCharge('') }
+  }
   const refreshAll = async () => { load(); setCandidates(await Rfqs.list().then((rfqs) => rfqs.filter((r) => candidates.some((c) => c.id === r.id)))) }
 
   const awardFull = async () => {
@@ -282,6 +294,10 @@ export default function Award() {
       </Card>
 
       {allQuotes.some((quote) => allQuotes.filter((other) => other.supplierId === quote.supplierId).length > 1) && <Card className="p-4"><h2 className="font-semibold text-ink-800">Quote option used for award</h2><p className="mb-3 text-xs text-ink-500">Comparison shows every option separately. Choose one option per supplier for ranking, segregation, and award; the awarded supplier remains the same.</p><div className="flex flex-wrap gap-3">{supIds.map((sid) => { const options = allQuotes.filter((quote) => quote.supplierId === sid); return options.length > 1 && <label key={sid} className="min-w-48"><span className="label">{nameOf(sid)}</span><select className="input" value={quotes.find((quote) => quote.supplierId === sid)?.id || ''} onChange={(event) => { setSelectedQuoteIds((previous) => ({ ...previous, [sid]: event.target.value })); setAllocation(null) }} disabled={!!rfq.award}>{options.map((quote) => <option key={quote.id} value={quote.id}>Q{quote.optionNumber || 1} · {quote.fileName || 'Individual items'}</option>)}</select></label> })}</div></Card>}
+
+      <Card className="overflow-x-auto p-4"><SectionTitle art="cost">Cost consideration</SectionTitle><p className="mb-3 text-xs text-ink-500">Edit duties and freight for each selected quote. Grand Total updates immediately; item rates remain available for split awards.</p><table className="min-w-full text-sm"><thead><tr className="border-b border-ink-100"><th className="px-3 py-2 text-left">Amount (USD)</th>{comparisonTotals.map((total) => <th key={total.quoteId} className="min-w-44 px-3 py-2 text-right">{nameOf(total.sid)}-Q{quotes.find((quote) => quote.id === total.quoteId)?.optionNumber || 1}</th>)}</tr></thead><tbody><tr><th className="px-3 py-2 text-left">Total</th>{comparisonTotals.map((total) => <td key={total.quoteId} className="px-3 py-2 text-right">{fmt(total.total)}</td>)}</tr>{[['Duties', 'duties'], ['Freight Charges', 'freightCharges']].map(([label, field]) => <tr key={field}><th className="px-3 py-2 text-left">{label}</th>{comparisonTotals.map((total) => <td key={total.quoteId} className="px-3 py-1 text-right"><input aria-label={`${label} for ${nameOf(total.sid)}`} type="number" min="0" step="0.01" value={quotes.find((quote) => quote.id === total.quoteId)?.[field] ?? 0} disabled={!(can('rfq.evaluate') || can('supplier.response.edit')) || !!rfq.award || !!savingCharge} onFocus={(event) => { event.currentTarget.dataset.original = String(Number(event.currentTarget.value) || 0) }} onChange={(event) => updateCharge(total.quoteId, field, event.target.value)} onBlur={(event) => { if (Number(event.target.value) !== Number(event.currentTarget.dataset.original)) saveCharge(total.quoteId, field, event.target.value) }} className="w-28 rounded border border-ink-200 bg-white px-2 py-1 text-right focus:border-brand-400 focus:outline-none" /></td>)}</tr>)}<tr className="border-t border-emerald-200 bg-emerald-50 font-bold"><th className="px-3 py-2 text-left">Grand Total</th>{comparisonTotals.map((total) => <td key={total.quoteId} className="px-3 py-2 text-right text-emerald-800">{fmt(total.grandTotal)}</td>)}</tr></tbody></table>{savingCharge && <p role="status" className="mt-2 text-xs text-ink-500">Saving charge…</p>}</Card>
+
+      <Card className="p-4"><SectionTitle art="cost">Quoted items under consideration</SectionTitle>{quotedItems.length ? <div className="max-h-80 space-y-2 overflow-y-auto">{quotedItems.map(({ line, offers }) => { const best = Math.min(...offers.map(({ item }) => Number(item.rate))); return <div key={line.lineId} className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3"><p className="font-semibold text-ink-900">{line.name} <span className="text-xs font-normal text-ink-500">· Qty {line.qty}</span></p><div className="mt-2 flex flex-wrap gap-2">{offers.map(({ quote, item }) => <span key={quote.id} className={`rounded-lg px-2 py-1 text-xs ${Number(item.rate) === best ? 'bg-emerald-600 font-semibold text-white' : 'bg-white text-ink-700'}`}>{quote.supplierName}-Q{quote.optionNumber || 1}: {fmt(Number(item.rate))} / unit</span>)}</div></div> })}</div> : <p className="text-sm text-ink-500">No priced items yet.</p>}</Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
