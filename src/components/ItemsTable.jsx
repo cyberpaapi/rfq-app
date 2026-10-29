@@ -160,15 +160,24 @@ export default function ItemsTable({ rows, onChange, onRemove, onSetAllDeliveryD
 
   if (!rows?.length) return <Empty icon="items" title="No items" hint={emptyHint} />
 
-  // Arrow buttons sit on the header row at the left/right edges.
-  const arrowBtn = 'absolute top-1 z-20 grid h-8 w-8 place-items-center rounded-full border border-ink-200 bg-white text-ink-600 shadow-md transition hover:bg-ink-50 hover:text-brand-600'
+  // Arrow buttons sit beside the column headings, below the optional bulk-date row.
+  const arrowBtn = `absolute ${onSetAllDeliveryDates ? 'top-20' : 'top-1'} z-20 grid h-8 w-8 place-items-center rounded-full border border-ink-200 bg-white text-ink-600 shadow-md transition hover:bg-ink-50 hover:text-brand-600`
   return (
     <div className="relative">
       <div ref={scrollRef} onScroll={updateEdges} className={`overflow-x-auto rounded-xl border border-ink-100 ${mappable ? 'pl-7' : ''}`}>
         <table className="w-full min-w-[1320px] border-collapse text-sm">
           <thead>
+            {onSetAllDeliveryDates && <tr className="bg-white">
+              <th colSpan={10} className="border-b border-ink-100" />
+              <th className="border-b border-ink-100 px-3 py-2 text-left">
+                <label className="block text-[11px] font-semibold text-brand-700">Set date for all items
+                  <input type="date" aria-label="Set required delivery date for all items" value={commonDeliveryDate} onChange={(event) => onSetAllDeliveryDates(event.target.value)} className="mt-1 w-36 rounded-md border border-brand-300 bg-white p-1.5 text-xs font-normal text-ink-800" />
+                </label>
+              </th>
+              <th colSpan={2} className="border-b border-ink-100" />
+            </tr>}
             <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
-              {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}{h === 'Required Delivery Date' && onSetAllDeliveryDates && <label className="mt-2 block normal-case tracking-normal"><span className="sr-only">Set required delivery date for all items</span><input type="date" aria-label="Set required delivery date for all items" value={commonDeliveryDate} onChange={(event) => onSetAllDeliveryDates(event.target.value)} className="w-36 rounded-md border border-brand-300 bg-white p-1.5 text-xs font-normal text-ink-800" /></label>}</th>)}
+              {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}</th>)}
               <th className="border-b border-ink-200 px-2 py-2.5"></th>
             </tr>
           </thead>
