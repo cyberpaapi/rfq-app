@@ -34,7 +34,9 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
   const [imported, setImported] = useState([]) // items parsed from an Excel/doc upload
   const [lines, setLines] = useState(() => initialDraft?.lines || []) // selected RFQ lines
   const [suppliers, setSuppliers] = useState([])
-  const [picked, setPicked] = useState([])
+  const [assignments, setAssignments] = useState([])
+  const [editingSupplierId, setEditingSupplierId] = useState('')
+  const [selectedLineIds, setSelectedLineIds] = useState([])
   const [draftId, setDraftId] = useState('')
   const [supplierBusy, setSupplierBusy] = useState(false)
   const [openGroups, setOpenGroups] = useState([])
@@ -98,9 +100,35 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
     if (!draftId || supplierBusy) return
     setSupplierBusy(true); setSaveError('')
     try {
-      if (picked.includes(id)) await Rfqs.unassign(draftId, id)
-      else await Rfqs.assign(draftId, { supplierId: id, type: 'full' })
-      setPicked((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])
+      if (assignments.some((assignment) => assignment.supplierId === id)) {
+        await Rfqs.unassign(draftId, id)
+        setAssignments((previous) => previous.filter((assignment) => assignment.supplierId !== id))
+      } else {
+        const { assignment } = await Rfqs.assign(draftId, { supplierId: id, type: 'full' })
+        setAssignments((previous) => [...previous, assignment])
+      }
+      if (editingSupplierId === id) setEditingSupplierId('')
+    } catch (error) { setSaveError(error.message) }
+    finally { setSupplierBusy(false) }
+  }
+  const chooseSupplierItems = (supplierId) => {
+    const existing = assignments.find((assignment) => assignment.supplierId === supplierId)
+    setSelectedLineIds(existing ? readyLines.filter((line) => existing.lineIds.includes(line.lineId)).map((line) => line.lineId) : [])
+    setEditingSupplierId(supplierId)
+    setSaveError('')
+  }
+  const saveSupplierItems = async () => {
+    if (!draftId || !editingSupplierId || !selectedLineIds.length || supplierBusy) return
+    setSupplierBusy(true); setSaveError('')
+    try {
+      const lineIds = readyLines.filter((line) => selectedLineIds.includes(line.lineId)).map((line) => line.lineId)
+      const body = { type: lineIds.length === readyLines.length ? 'full' : 'partial', lineIds }
+      const existing = assignments.some((assignment) => assignment.supplierId === editingSupplierId)
+      const { assignment } = existing
+        ? await Rfqs.updateAssignment(draftId, editingSupplierId, body)
+        : await Rfqs.assign(draftId, { supplierId: editingSupplierId, ...body })
+      setAssignments((previous) => [...previous.filter((item) => item.supplierId !== editingSupplierId), assignment])
+      setEditingSupplierId('')
     } catch (error) { setSaveError(error.message) }
     finally { setSupplierBusy(false) }
   }
@@ -123,11 +151,12 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
       .sort((a, b) => Number(b.previouslyInvited) - Number(a.previouslyInvited))
   }, [suppliers, catFilter, supQuery])
   const readyLines = lines.filter((line) => typeof line.name === 'string' && line.name.trim())
+  const picked = assignments.map((assignment) => assignment.supplierId)
 
   const canNext =
     (step === 0 && form.title.trim() && form.creationDate) ||
     (step === 1 && readyLines.length > 0) ||
-    step === 2 ||
+    (step === 2 && !editingSupplierId) ||
     step === 3
 
   const payload = () => ({
@@ -143,6 +172,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
   const upsertDraft = async () => {
     const rfq = draftId ? await Rfqs.update(draftId, payload()) : await Rfqs.create(payload())
     setDraftId(rfq.id)
+    setAssignments(rfq.assignments || [])
     for (const file of pendingFiles) {
       const attachment = await Rfqs.addAttachment(rfq.id, file)
       setUploadedFiles((previous) => [...previous, attachment])
@@ -308,23 +338,44 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
             {sortedSuppliers.length === 0 ? <Empty icon="suppliers" title="No suppliers match" /> : (
               <div className="grid gap-2 sm:grid-cols-2">
                 {sortedSuppliers.map((s) => {
-                  const sel = picked.includes(s.id)
+                  const assigned = assignments.find((assignment) => assignment.supplierId === s.id)
+                  const sel = !!assigned
                   return (
-                    <button key={s.id} type="button" disabled={supplierBusy || s.qualified === false} aria-pressed={sel} onClick={() => toggleSupplier(s.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${sel ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-500/10' : 'border-ink-100 hover:bg-ink-50'}`}>
-                      <Avatar name={s.name} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <p className="truncate font-semibold text-ink-800">{s.name}</p>
-                          {s.previouslyInvited && <span className="chip bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">Recent</span>}
+                    <div key={s.id} className={`rounded-xl border p-3 ${sel ? 'border-brand-400 bg-brand-50/60' : 'border-ink-100'}`}>
+                      <div className="flex items-center gap-3">
+                        <Avatar name={s.name} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate font-semibold text-ink-800">{s.name}</p>
+                            {s.previouslyInvited && <span className="chip bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">Recent</span>}
+                          </div>
+                          <p className="flex items-center gap-2 text-xs text-ink-400">{s.category}<span className="flex items-center gap-0.5"><Star size={11} className="fill-amber-400 text-amber-400" />{s.rating}</span>{!s.qualified && <span className="text-rose-500">· Not qualified</span>}</p>
                         </div>
-                        <p className="flex items-center gap-2 text-xs text-ink-400">{s.category}<span className="flex items-center gap-0.5"><Star size={11} className="fill-amber-400 text-amber-400" />{s.rating}</span>{!s.qualified && <span className="text-rose-500">· Not qualified</span>}</p>
+                        <span className={`chip ${sel ? 'bg-emerald-50 text-emerald-700' : 'bg-ink-50 text-ink-500'}`}>{sel ? `${assigned.lineIds.length} of ${readyLines.length} items` : 'Not selected'}</span>
                       </div>
-                      <div className={`grid h-5 w-5 place-items-center rounded-md border ${sel ? 'border-brand-500 bg-brand-600 text-white' : 'border-ink-300'}`}>{sel && <Check size={13} />}</div>
-                    </button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" disabled={supplierBusy || s.qualified === false} onClick={() => toggleSupplier(s.id)} className="btn-outline py-1.5 text-xs">{sel ? 'Remove supplier' : 'Assign full RFQ'}</button>
+                        <button type="button" disabled={supplierBusy || s.qualified === false} onClick={() => chooseSupplierItems(s.id)} className="btn-outline py-1.5 text-xs">{sel ? 'Change items' : 'Choose items'}</button>
+                      </div>
+                    </div>
                   )
                 })}
               </div>
             )}
+            {editingSupplierId && <div className="mt-5 rounded-xl border border-brand-200 bg-brand-50/40 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div><h3 className="font-bold text-ink-900">Items for {suppliers.find((supplier) => supplier.id === editingSupplierId)?.name}</h3><p className="text-sm text-ink-500">Only checked items will appear in this supplier’s RFQ portal.</p></div>
+                <div className="flex gap-3 text-sm"><button type="button" className="font-semibold text-brand-700 hover:underline" onClick={() => setSelectedLineIds(readyLines.map((line) => line.lineId))}>Select all</button><button type="button" className="font-semibold text-ink-600 hover:underline" onClick={() => setSelectedLineIds([])}>Clear</button></div>
+              </div>
+              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto" role="group" aria-label="RFQ items for supplier">
+                {readyLines.map((line) => <label key={line.lineId} className="flex cursor-pointer items-center gap-3 rounded-lg border border-ink-100 bg-white p-3 text-sm hover:border-brand-300">
+                  <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={selectedLineIds.includes(line.lineId)} onChange={() => setSelectedLineIds((previous) => previous.includes(line.lineId) ? previous.filter((id) => id !== line.lineId) : [...previous, line.lineId])} />
+                  <span className="min-w-0 flex-1 font-medium text-ink-800">{line.name}{line.spec ? <span className="ml-2 font-normal text-ink-500">· {line.spec}</span> : null}</span>
+                  <span className="text-ink-500">{line.quantity} {line.uom}</span>
+                </label>)}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-ink-500">{selectedLineIds.length} of {readyLines.length} items selected</p><div className="flex gap-2"><button type="button" className="btn-outline text-sm" onClick={() => setEditingSupplierId('')}>Cancel</button><button type="button" className="btn-primary text-sm" disabled={supplierBusy || selectedLineIds.length === 0} onClick={saveSupplierItems}>{supplierBusy ? 'Saving…' : 'Save item selection'}</button></div></div>
+            </div>}
           </div>
         )}
 
@@ -352,7 +403,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
               <div className="rounded-xl border border-ink-100 p-4">
                 <p className="mb-2 font-bold text-ink-800">{picked.length} Suppliers</p>
                 <ul className="space-y-1 text-sm text-ink-600">
-                  {picked.map((id) => <li key={id}>· {suppliers.find((s) => s.id === id)?.name}</li>)}
+                  {assignments.map((assignment) => <li key={assignment.supplierId}>· {assignment.supplierName} — {assignment.type === 'full' ? 'Full RFQ' : `${assignment.lineIds.length} of ${readyLines.length} items`}</li>)}
                   {picked.length === 0 && <li className="text-ink-400">No suppliers selected (save as draft)</li>}
                 </ul>
               </div>

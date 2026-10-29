@@ -102,6 +102,7 @@ export const Rfqs = {
   update: (id, b) => api.put(`/rfqs/${id}`, b),
   setStatus: (id, status) => api.post(`/rfqs/${id}/status`, { status }),
   assign: (id, b) => api.post(`/rfqs/${id}/assign`, b),
+  updateAssignment: (id, supplierId, b) => api.put(`/rfqs/${id}/assign/${supplierId}`, b),
   unassign: (id, supplierId) => api.del(`/rfqs/${id}/assign/${supplierId}`),
   quote: (id, b) => api.post(`/rfqs/${id}/quote`, b),
   quoteUpload: (id, file, supplierId) => api.upload(`/rfqs/${id}/quote-upload`, file, { supplierId }),

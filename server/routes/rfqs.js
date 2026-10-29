@@ -525,13 +525,17 @@ router.post('/:id/status', (req, res) => {
 })
 
 // Assign whole RFQ or a partial set of lines to a supplier.
-router.post('/:id/assign', (req, res) => {
+const assignSupplier = (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
-  const { supplierId, type = 'full', lineIds = [] } = req.body || {}
+  const { type = 'full', lineIds = [] } = req.body || {}
+  const supplierId = req.params.supplierId || req.body?.supplierId
   const supplier = store.find('suppliers', supplierId)
   if (!supplier) return res.status(404).json({ error: 'supplier not found' })
-  if (rfq.assignments?.some((assignment) => assignment.supplierId === supplierId)) return res.status(409).json({ error: 'Supplier is already selected for this RFQ.' })
+  const existing = rfq.assignments?.find((assignment) => assignment.supplierId === supplierId)
+  if (req.method === 'POST' && existing) return res.status(409).json({ error: 'Supplier is already selected for this RFQ.' })
+  if (req.method === 'PUT' && !existing) return res.status(404).json({ error: 'Supplier is not selected for this RFQ.' })
+  if (req.method === 'PUT' && rfq.status !== 'Draft') return res.status(409).json({ error: 'Only draft supplier selections can be changed.' })
 
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   if (supplier.qualified === false) return res.status(400).json({ error: 'Supplier is not qualified.' })
@@ -550,19 +554,21 @@ router.post('/:id/assign', (req, res) => {
   store.update('suppliers', supplier.id, { tags, previouslyInvited: rfq.status === 'Draft' ? supplier.previouslyInvited : true })
 
   const assignment = {
-    id: newId('ASG'),
+    id: existing?.id || newId('ASG'),
     supplierId,
     supplierName: supplier.name,
     type,
     lineIds: targetIds,
-    createdAt: Date.now(),
+    createdAt: existing?.createdAt || Date.now(),
   }
   const assignments = [...rfq.assignments.filter((a) => a.supplierId !== supplierId), assignment]
   store.update('rfqs', rfq.id, { assignments })
-  store.logAudit({ rfqId: rfq.id, user: actor(req), action: `${rfq.status === 'Draft' ? 'Selected' : 'Invited'} ${supplier.name}`, field: 'Suppliers', old: '', value: supplier.name })
-  if (rfq.status !== 'Draft') store.notify({ type: 'response', title: `${supplier.name} invited to ${rfq.title}`, rfqId: rfq.id })
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: `${existing ? 'Changed selection for' : rfq.status === 'Draft' ? 'Selected' : 'Invited'} ${supplier.name}`, field: 'Suppliers', old: existing ? `${existing.lineIds.length} item(s)` : '', value: `${targetIds.length} item(s)` })
+  if (!existing && rfq.status !== 'Draft') store.notify({ type: 'response', title: `${supplier.name} invited to ${rfq.title}`, rfqId: rfq.id })
   res.json({ assignment, supplierTags: tags })
-})
+}
+router.post('/:id/assign', assignSupplier)
+router.put('/:id/assign/:supplierId', assignSupplier)
 
 router.delete('/:id/assign/:supplierId', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
