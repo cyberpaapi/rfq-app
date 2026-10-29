@@ -113,7 +113,8 @@ router.get('/costing/:rfqId', (req, res) => {
   sendWorkbook(res, wb, `${rfq.id}-Costing.xlsx`)
 })
 
-// GET /api/export/rfq-items/:rfqId — only columns with values in the visible RFQ items.
+// GET /api/export/rfq-items/:rfqId — fixed RFQ template for suppliers to fill in.
+const rfqItemHeaders = ['S.No', 'Item Name', 'Specification', 'Description', 'Secondary Requirements', 'Brand', 'Model No', 'Part No', 'Quantity', 'Unit', 'Remark', 'Required Delivery Date', 'Unit Price']
 router.get('/rfq-items/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
@@ -121,7 +122,8 @@ router.get('/rfq-items/:rfqId', (req, res) => {
   const rows = visibleLines.map((l, i) => ({
     'S.No': i + 1,
     'Item Name': l.name,
-    'Specification': [l.spec, l.description].filter(Boolean).join(' — '),
+    'Specification': l.spec || '',
+    'Description': l.description || '',
     'Secondary Requirements': l.secondaryRequirements || '',
     'Brand': l.brand || '',
     'Model No': l.model || '',
@@ -130,11 +132,9 @@ router.get('/rfq-items/:rfqId', (req, res) => {
     'Unit': l.uom,
     'Remark': l.remark || '',
     'Required Delivery Date': l.requiredDeliveryDate || '',
+    'Unit Price': '',
   }))
-  const headers = rows.length
-    ? Object.keys(rows[0]).filter((key) => rows.some((row) => row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== ''))
-    : ['S.No', 'Item Name', 'Quantity']
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((row) => headers.map((key) => row[key]))])
+  const ws = XLSX.utils.aoa_to_sheet([rfqItemHeaders, ...rows.map((row) => rfqItemHeaders.map((key) => row[key]))])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'RFQ Items')
   sendWorkbook(res, wb, `${rfq.id}-RFQ.xlsx`)
