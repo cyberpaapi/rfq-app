@@ -54,6 +54,32 @@ test('CSV and Excel imports preserve row fields and do not merge repeated lines'
   }
 })
 
+test('supplier quote rows keep extra columns in the matching item description', async () => {
+  const csv = [
+    'Item Name,Quantity,Unit,Unit Price,Description,Country of Origin,Certification,Batch No,Amount,Brand',
+    'Pump,2,PCS,19,Stainless body,Japan,ISO 9001,B-17,38,Acme',
+    'Valve,3,PCS,8,Brass body,India,CE,V-22,24,FlowCo',
+  ].join('\n')
+  const fallback = await extractItems(await extractDocument({ buffer: Buffer.from(csv), filename: 'quote.csv' }), { quote: true })
+  assert.equal(fallback.items.length, 2)
+  assert.equal(fallback.items[0].unitPrice, 19)
+  assert.match(fallback.items[0].description, /Stainless body.*Country of Origin: Japan.*Certification: ISO 9001.*Batch No: B-17/)
+  assert.doesNotMatch(fallback.items[0].description, /India|38|Acme/)
+  assert.match(fallback.items[1].description, /Brass body.*Country of Origin: India.*Certification: CE.*Batch No: V-22/)
+
+  const template = XLSX.utils.aoa_to_sheet([
+    ['Item Name', 'Specification', 'Description', 'Offered Description', 'Supplier Remarks', 'Country of Origin', 'Unit Price'],
+    ['Pump', 'Buyer spec 5 kW', 'Buyer description only', 'Stainless supplier offer', 'Packed separately', 'Japan', 19],
+  ])
+  const buffer = XLSX.write({ SheetNames: ['Quote'], Sheets: { Quote: template } }, { type: 'buffer', bookType: 'xlsx' })
+  const extraction = await extractDocument({ buffer, filename: 'quote.xlsx' })
+  const client = { chat: { completions: { create: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ items: [{ name: 'Pump', spec: '', description: 'Stainless supplier offer', quantity: 2, uom: 'PCS', brand: '', model: '', partNo: '', unitPrice: 19, leadTime: '', warranty: '', sourceRow: 1 }] }) } }] }) } } }
+  const ai = await extractItems(extraction, { quote: true, client })
+  assert.match(ai.items[0].description, /Stainless supplier offer.*Supplier Remarks: Packed separately.*Country of Origin: Japan/)
+  assert.doesNotMatch(ai.items[0].description, /Buyer spec|Buyer description|Unit Price/)
+  assert.equal(ai.items[0].description.match(/Stainless supplier offer/g).length, 1)
+})
+
 test('image import without AI fails visibly instead of reporting zero items', async () => {
   const extraction = await extractDocument({ buffer: Buffer.from('image'), filename: 'items.png' })
   await assert.rejects(extractItems(extraction), (error) => error.status === 422 && /require AI processing/.test(error.message))

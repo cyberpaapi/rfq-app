@@ -7,6 +7,14 @@ export function quoteCoverage(lines, quote) {
     total: priced.reduce((sum, line) => sum + Number(quote.lines.find((q) => q.lineId === line.lineId).rate) * Number(line.qty), 0) }
 }
 
+export function quoteComparisonTotals(lines, quote) {
+  const coverage = quoteCoverage(lines, quote)
+  const duties = Number(quote?.duties) || 0
+  const freightCharges = Number(quote?.freightCharges) || 0
+  return { ...coverage, duties, freightCharges,
+    grandTotal: Math.round((coverage.total + duties + freightCharges) * 100) / 100 }
+}
+
 export function scoreCandidates(candidates, weights, suppliers = {}) {
   if (!candidates.length) return []
   const minRate = Math.min(...candidates.map((c) => c.rate))

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { isPriced, quoteCoverage } from '../../shared/evaluation'
+import { isPriced, quoteComparisonTotals } from '../../shared/evaluation'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { GitCompareArrows, Loader2, ChevronDown, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Rfqs, Reports } from '../api/client'
@@ -59,6 +59,8 @@ export default function Compare() {
     setQuotes((qs) => qs.map((q) => q.supplierId !== sid ? q : { ...q, lines: q.lines.some((l) => l.lineId === lineId) ? q.lines.map((l) => l.lineId === lineId ? { ...l, ...patch } : l) : [...q.lines, { lineId, ...patch }] }))
   }
   const saveCell = (sid, lineId, patch) => trackSave(Rfqs.editQuote(rfqId, sid, { lines: [{ lineId, ...patch }] }))
+  const setCharge = (sid, field, value) => setQuotes((currentQuotes) => currentQuotes.map((quote) => quote.supplierId === sid ? { ...quote, [field]: value } : quote))
+  const saveCharge = (sid, field, value) => trackSave(Rfqs.editQuote(rfqId, sid, { [field]: value === '' ? 0 : Number(value) }))
   const setEtaAll = (sid, eta) => {
     setRfq((r) => ({ ...r, recommendation: null }))
     setQuotes((qs) => qs.map((q) => q.supplierId !== sid ? q : { ...q, lines: q.lines.map((l) => ({ ...l, eta })) }))
@@ -104,9 +106,9 @@ export default function Compare() {
     </Card>
   )
 
-  const totalsBySup = supIds.map((sid) => ({ sid, total: rows.reduce((a, r) => a + (r.cells.find((c) => c.sid === sid)?.total || 0), 0) }))
-  const completeTotals = totalsBySup.filter((t) => quoteCoverage(rfq?.lines || [], quotes.find((q) => q.supplierId === t.sid)).complete)
-  const bestTotal = completeTotals.length ? Math.min(...completeTotals.map((t) => t.total)) : null
+  const totalsBySup = quotes.map((quote) => ({ sid: quote.supplierId, ...quoteComparisonTotals(rfq?.lines || [], quote) }))
+  const completeTotals = totalsBySup.filter((t) => t.complete)
+  const bestTotal = completeTotals.length ? Math.min(...completeTotals.map((t) => t.grandTotal)) : null
   const withFile = quotes.filter((q) => q.hasFile)
   const recommendation = rfq?.recommendation || {}
   // Default weights the "best suggestion" trades off (Evaluation lets you tune these).
@@ -260,15 +262,39 @@ export default function Compare() {
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-ink-100 bg-ink-50/60 font-bold">
-                      <td className="px-3 py-2" colSpan={4}>Grand Total</td>
+                    <tr className="border-t-2 border-ink-100 bg-ink-50/60 font-semibold">
+                      <td className="px-3 py-2" colSpan={4}>Total</td>
                       {totalsBySup.map((t) => (
                         <Fragment key={t.sid}>
-                          <td className="border-l border-ink-100 px-2 py-2 text-right" colSpan={2}>{fmt(t.total)}{!quoteCoverage(rfq.lines, quotes.find((q) => q.supplierId === t.sid)).complete && <span className="block text-xs font-normal text-amber-700">Incomplete quote</span>}</td>
+                          <td className="border-l border-ink-100 px-2 py-2 text-right" colSpan={2}>{fmt(t.total)}{!t.complete && <span className="block text-xs font-normal text-amber-700">Incomplete quote</span>}</td>
                           <td colSpan={3}></td>
                         </Fragment>
                       ))}
-                      <td className="border-l border-ink-100 px-3 py-2 text-emerald-700" colSpan={6}>Best total: {bestTotal == null ? 'No complete quote' : nameOf(completeTotals.find((t) => t.total === bestTotal)?.sid)}</td>
+                      <td className="border-l border-ink-100" colSpan={6}></td>
+                    </tr>
+                    {[["Duties", "duties"], ["Freight Charges", "freightCharges"]].map(([label, field]) => (
+                      <tr key={field} className="bg-white">
+                        <td className="px-3 py-2 font-medium text-ink-700" colSpan={4}>{label}</td>
+                        {totalsBySup.map((t) => (
+                          <Fragment key={t.sid}>
+                            <td className="border-l border-ink-100 px-2 py-1 text-right" colSpan={2}>
+                              <input aria-label={`${label} for ${nameOf(t.sid)}`} disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="number" min="0" step="0.01" value={quotes.find((q) => q.supplierId === t.sid)?.[field] ?? 0} onFocus={(event) => { event.currentTarget.dataset.original = String(Number(event.currentTarget.value) || 0) }} onChange={(event) => setCharge(t.sid, field, event.target.value)} onBlur={(event) => { if (Number(event.target.value) !== Number(event.currentTarget.dataset.original)) saveCharge(t.sid, field, event.target.value) }} className="w-28 rounded border border-ink-200 bg-white px-2 py-1 text-right text-sm focus:border-brand-400 focus:outline-none" />
+                            </td>
+                            <td colSpan={3}></td>
+                          </Fragment>
+                        ))}
+                        <td className="border-l border-ink-100" colSpan={6}></td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-ink-200 bg-emerald-50/60 font-bold">
+                      <td className="px-3 py-2" colSpan={4}>Grand Total</td>
+                      {totalsBySup.map((t) => (
+                        <Fragment key={t.sid}>
+                          <td className="border-l border-ink-100 px-2 py-2 text-right text-emerald-800" colSpan={2}>{fmt(t.grandTotal)}</td>
+                          <td colSpan={3}></td>
+                        </Fragment>
+                      ))}
+                      <td className="border-l border-ink-100 px-3 py-2 text-emerald-700" colSpan={6}>Best grand total: {bestTotal == null ? 'No complete quote' : nameOf(completeTotals.find((t) => t.grandTotal === bestTotal)?.sid)}</td>
                     </tr>
                   </tfoot>
                 </table>

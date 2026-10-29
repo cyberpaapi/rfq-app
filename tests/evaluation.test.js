@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isPriced, quoteCoverage, scoreCandidates, validateAward } from '../shared/evaluation.js'
+import { isPriced, quoteCoverage, quoteComparisonTotals, scoreCandidates, validateAward } from '../shared/evaluation.js'
 import { matchQuoteLines } from '../server/lib/ai.js'
 
 const lines = [{ lineId: '1', name: 'Lamp', qty: 2 }, { lineId: '2', name: 'Cable', qty: 3 }]
@@ -19,6 +19,10 @@ test('incomplete cheap bids are not eligible for a full award', () => {
   assert.deepEqual(quoteCoverage(lines, quotes[0]), { count: 1, complete: false, total: 2 })
   assert.deepEqual(quoteCoverage(lines, quotes[1]), { count: 2, complete: true, total: 40 })
   assert.throws(() => validateAward(rfq, quotes, suppliers, { supplierId: 'A' }), /no valid price/)
+})
+test('comparison grand total adds duties and freight to priced item totals', () => {
+  assert.deepEqual(quoteComparisonTotals(lines, quotes[1]), { count: 2, complete: true, total: 40, duties: 0, freightCharges: 0, grandTotal: 40 })
+  assert.deepEqual(quoteComparisonTotals(lines, { ...quotes[1], duties: 2.25, freightCharges: 4.5 }), { count: 2, complete: true, total: 40, duties: 2.25, freightCharges: 4.5, grandTotal: 46.75 })
 })
 test('full award uses persisted prices and stable supplier IDs', () => {
   const result = validateAward(rfq, quotes, suppliers, { supplierId: 'B', amount: 0.01 })

@@ -206,6 +206,40 @@ function naiveQuoteRows(extraction) {
   return items
 }
 
+// AI and the offline parser both return a fixed quote schema. Preserve values
+// from additional spreadsheet columns on their original item row even when the
+// extractor did not recognize a column (for example origin or certification).
+function preserveQuoteRowDetails(extraction, items) {
+  if (extraction.kind !== 'rows') return items
+  const rows = new Map()
+  for (const sheet of extraction.sheets || []) {
+    const headers = sheet.header.map((header) => String(header || '').trim())
+    const rfqTemplate = headers.some((header) => /^offered (?:item|description|brand|model|part)/i.test(header))
+    for (const row of sheet.rows) {
+      const extra = []
+      row.cells.forEach((cell, index) => {
+        const value = String(cell ?? '').trim()
+        if (!value) return
+        const header = headers[index] || `Column ${index + 1}`
+        const key = header.toLowerCase().replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+        if (/^(s no|serial(?: no| number)?|row|line(?: no| number| id)?|quote|item(?: name)?|product(?: name)?|material(?: name)?|name|(?:rfq|requested|offered|supplier) item(?: name)?|qty|quantity|unit|uom|unit of measure|(?:unit )?price(?: .*)?|price per unit|quoted price(?: .*)?|rate|amount|line total|total|subtotal|tax|gst|currency|(?:offered |supplier |rfq |requested )?(?:brand|make|model(?: no| number)?|part(?: no| number)?|mpn)|delivery lead time|lead time|warranty|required delivery date)$/i.test(key)) return
+        // The exported RFQ template contains buyer requirements as well as
+        // supplier response columns; buyer text must not become an offer.
+        if (rfqTemplate && /^(specification|description|secondary requirements|remark|rfq photo)$/i.test(key)) return
+        extra.push({ header, value })
+      })
+      rows.set(row.id, extra)
+    }
+  }
+  return items.map((item) => {
+    const extra = rows.get(item.pages?.[0]) || []
+    const original = String(item.description || '').trim()
+    const details = extra.filter(({ value }) => !original.toLowerCase().includes(value.toLowerCase()))
+      .map(({ header, value }) => `${header}: ${value}`)
+    return details.length ? { ...item, description: [original, ...details].filter(Boolean).join(' | ') } : item
+  })
+}
+
 async function callModel(client, content, label = '', schema = ITEM_SCHEMA, system = SYSTEM, maxTokens = MAX_TOKENS) {
   const messages = [{ role: 'system', content: system }, { role: 'user', content }]
   const resp = await loggedCompletion(client, chatParams(MODEL, messages, schema, maxTokens))
@@ -267,6 +301,7 @@ const QUOTE_SYSTEM = `You are reading a SUPPLIER QUOTATION. Extract EVERY quoted
 - "unitPrice": the PER-UNIT price/rate as a NUMBER, no currency symbols. If only a line total is shown, divide it by the quantity. Use 0 if no price is present.
 - "leadTime": delivery lead-time text if present, else "".
 - "warranty": warranty text if present, else "".
+- For every item row, place ALL remaining nonempty details into that item's "description" as labeled values (for example origin, certification, material, packaging, deviations, or extra notes). Never discard an unfamiliar column or attach its value to another item. Keep document-level terms out of item descriptions.
 Be exhaustive — one item per quoted line. Ignore sub-totals, totals, taxes, and terms.`
 
 const QUOTE_FIELDS = {
@@ -564,7 +599,8 @@ export async function extractItems(extraction, opts = {}) {
   const quote = !!opts.quote // supplier-quote mode → extract unit prices, skip clubbing
   const hasKey = !!(opts.client || process.env.OPENAI_API_KEY)
   if (!hasKey) {
-    const items = fallbackItems(extraction, quote)
+    const parsed = fallbackItems(extraction, quote)
+    const items = quote ? preserveQuoteRowDetails(extraction, parsed) : parsed
     if (!items.length) throw Object.assign(new Error('No procurement items could be extracted. Check the document and try again; scanned PDFs and images require AI processing.'), { status: 422 })
     return { items, clubs: null, engine: 'fallback', clubEngine: null, note: 'No OPENAI_API_KEY — used local parser. Review extracted fields before continuing.', pages: 1, chunks: 1 }
   }
@@ -616,7 +652,7 @@ export async function extractItems(extraction, opts = {}) {
 
   const unitWord = extraction.kind === 'rows' ? 'row(s)' : extraction.kind === 'pdf' ? 'page(s)' : 'section(s)'
   const note = units.length > 1 ? `Parsed ${pages} ${unitWord} in ${units.length} chunks, ${CONCURRENCY}-way parallel.` : undefined
-  return { items, clubs, engine: MODEL, clubEngine, note, pages, chunks: units.length }
+  return { items: quote ? preserveQuoteRowDetails(extraction, items) : items, clubs, engine: MODEL, clubEngine, note, pages, chunks: units.length }
 }
 
 // ---- Supplier-quote currency handling -------------------------------------

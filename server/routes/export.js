@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import * as store from '../store.js'
 import { assignedRfqLines } from '../../shared/assignments.js'
 
-import { isPriced } from '../../shared/evaluation.js'
+import { isPriced, quoteComparisonTotals } from '../../shared/evaluation.js'
 
 const router = Router()
 
@@ -167,7 +167,7 @@ router.get('/comparison/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
-  const sup = quotes.map((q) => ({ id: q.supplierId, name: q.supplierName, lines: Object.fromEntries(q.lines.map((l) => [l.lineId, l])) }))
+  const sup = quotes.map((q) => ({ id: q.supplierId, name: q.supplierName, lines: Object.fromEntries(q.lines.map((l) => [l.lineId, l])), totals: quoteComparisonTotals(rfq.lines, q) }))
 
   const rows = rfq.lines.map((line, i) => {
     const row = { 'S.No': i + 1, 'Item': line.name, 'Requirement': [line.spec, line.description].filter(Boolean).join(' — '), 'Qty': line.qty }
@@ -190,7 +190,11 @@ router.get('/comparison/:rfqId', (req, res) => {
     return row
   })
 
-  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Item: '' }])
+  const summary = [['Total', 'total'], ['Duties', 'duties'], ['Freight Charges', 'freightCharges'], ['Grand Total', 'grandTotal']].map(([label, field]) => ({
+    Item: label,
+    ...Object.fromEntries(sup.map((supplier) => [`${supplier.name} Total`, supplier.totals[field]])),
+  }))
+  const ws = XLSX.utils.json_to_sheet([...(rows.length ? rows : [{ Item: '' }]), ...summary])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Comparison')
   sendWorkbook(res, wb, `${rfq.id}-Comparison.xlsx`)

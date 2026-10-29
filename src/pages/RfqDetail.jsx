@@ -211,7 +211,7 @@ export default function RfqDetail() {
 
           {can('supplier.response.edit') && !!rfq.assignments?.length && <Card className="p-5">
             <SectionTitle>Add/edit supplier response</SectionTitle>
-            <label className="mb-4 block max-w-sm"><span className="label">Supplier</span><select className="input" value={responseSupplier} onChange={(event) => setResponseSupplier(event.target.value)}><option value="">Select invited supplier</option>{rfq.assignments.map((a) => <option key={a.supplierId} value={a.supplierId}>{a.supplierName}</option>)}</select></label>
+            <label className="mb-4 block max-w-sm"><span className="label">Supplier</span><select className="input" value={responseSupplier} onChange={(event) => setResponseSupplier(event.target.value)}><option value="">Select invited supplier</option>{rfq.assignments.map((a) => <option key={a.supplierId} value={a.supplierId}>{a.supplierName}{responded.has(a.supplierId) ? ' ✅' : ''}</option>)}</select><span className="mt-1 block text-xs text-ink-500">✅ means a quote has been submitted.</span></label>
             <QuoteEditor rfq={rfq} supplierId={responseSupplier} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={load} />
           </Card>}
 

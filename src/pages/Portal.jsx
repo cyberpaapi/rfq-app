@@ -50,6 +50,7 @@ export default function Portal() {
   }, [internalResponder, rfq?.id, rfq?.assignments])
 
   const myLines = rfq?.lines || []
+  const quotedSupplierIds = new Set((rfq?.quotes || []).filter((quote) => quote.lines?.some(isPriced)).map((quote) => quote.supplierId))
   const alreadyQuoted = rfq?.quotes?.some((q) => q.supplierId === supplierId && q.lines?.some(isPriced))
 
   const upload = async (file) => {
@@ -109,7 +110,7 @@ export default function Portal() {
             </div>
           </div>
 
-          {internalResponder && <label className="mb-4 block max-w-md"><span className="label">Respond on behalf of supplier</span><select className="input" value={supplierId} onChange={(e) => { setSelectedSupplierId(e.target.value); setResult(null) }} disabled={!assignedSuppliers.length}><option value="">Select supplier</option>{assignedSuppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span className="mt-1 block text-xs text-ink-500">{assignedSuppliers.length ? 'Only suppliers selected for this RFQ are shown.' : 'No suppliers selected for this RFQ. Assign a supplier before entering a response.'}</span></label>}
+          {internalResponder && <label className="mb-4 block max-w-md"><span className="label">Respond on behalf of supplier</span><select className="input" value={supplierId} onChange={(e) => { setSelectedSupplierId(e.target.value); setResult(null) }} disabled={!assignedSuppliers.length}><option value="">Select supplier</option>{assignedSuppliers.map((item) => <option key={item.id} value={item.id}>{item.name}{quotedSupplierIds.has(item.id) ? ' ✅' : ''}</option>)}</select><span className="mt-1 block text-xs text-ink-500">{assignedSuppliers.length ? 'Only suppliers selected for this RFQ are shown. ✅ means a quote has been submitted.' : 'No suppliers selected for this RFQ. Assign a supplier before entering a response.'}</span></label>}
 
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
           <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>

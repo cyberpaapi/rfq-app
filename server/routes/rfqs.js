@@ -87,6 +87,7 @@ const stripFile = (q) => {
 const submission = (quote, { kind, at, actorName, changedLineIds, file = null }) => ({
   id: newId('QSUB'), kind, at, actor: actorName, changedLineIds,
   lines: structuredClone(quote.lines || []), sourceCurrency: quote.sourceCurrency || quote.currency || 'USD',
+  duties: quote.duties ?? 0, freightCharges: quote.freightCharges ?? 0,
   ...(file ? { fileName: file.originalname, fileMime: file.mimetype || 'application/octet-stream',
     fileBlob: file.blob || null, fileData: file.blob ? null : file.buffer.toString('base64') } : {}),
 })
@@ -238,9 +239,8 @@ router.get('/:id/quote-submissions/:supplierId/:submissionId/file', async (req, 
   } catch (error) { next(error) }
 })
 
-// Edit a supplier's quote in the comparison grid — merge per-line patches
-// (rate / eta / specNotes / qualityScore) by lineId. `etaAll` sets one ETA on
-// every line (a whole-consignment ETA).
+// Edit a supplier's quote in the comparison grid. Duties and freight are
+// supplier-level amounts; etaAll sets one ETA on every item.
 router.put('/:id/quotes/:supplierId', (req, res) => {
   const rfq = store.find('rfqs', req.params.id)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
@@ -248,8 +248,11 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
   const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
   if (!quote) return res.status(404).json({ error: 'quote not found' })
-  const { lines = [], etaAll } = req.body || {}
+  const { lines = [], etaAll, duties, freightCharges } = req.body || {}
   if (!Array.isArray(lines)) return res.status(400).json({ error: 'lines must be an array' })
+  for (const [label, value] of [['Duties', duties], ['Freight charges', freightCharges]]) {
+    if (value !== undefined && (value === '' || value === null || !Number.isFinite(Number(value)) || Number(value) < 0)) return res.status(400).json({ error: `${label} must be a non-negative amount.` })
+  }
   const assignedIds = new Set(assignedRfqLines(rfq, req.params.supplierId).map((line) => line.lineId))
   for (const line of lines) {
     if (!rfq.lines.some((l) => l.lineId === line.lineId)) return res.status(400).json({ error: 'Unknown RFQ item.' })
@@ -275,13 +278,15 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
     if (etaAll !== undefined && (p.eta === undefined)) merged.eta = etaAll
     return merged
   })
-  const revised = { ...quote, lines: next }
-  const updated = store.update('quotes', quote.id, { lines: next,
+  const charges = { ...(duties !== undefined ? { duties: Math.round(Number(duties) * 100) / 100 } : {}),
+    ...(freightCharges !== undefined ? { freightCharges: Math.round(Number(freightCharges) * 100) / 100 } : {}) }
+  const revised = { ...quote, ...charges, lines: next }
+  const updated = store.update('quotes', quote.id, { ...charges, lines: next,
     lineRevisions: { ...(quote.lineRevisions || {}), ...Object.fromEntries(priceIds.map((id) => [id, priceRevisionAt])) },
     submittedAt: priceIds.length ? priceRevisionAt : quote.submittedAt,
     submissions: [...previousSubmissions(quote), submission(revised, { kind: 'internal edit', at: priceRevisionAt,
       actorName: actor(req), changedLineIds: [...new Set([...lines.map((line) => line.lineId), ...(etaAll !== undefined ? next.map((line) => line.lineId) : [])])] })] })
-  invalidateRecommendation(rfq.id)
+  if (lines.length || etaAll !== undefined) invalidateRecommendation(rfq.id)
   res.json(stripFile(updated))
 })
 
