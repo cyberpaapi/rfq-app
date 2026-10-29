@@ -13,6 +13,8 @@ export default function SupplierUpload() {
   const [rfqs, setRfqs] = useState(null)
   const [rfqId, setRfqId] = useState('')
   const [rfq, setRfq] = useState(null)
+  const [selectedQuoteId, setSelectedQuoteId] = useState('')
+  const [pendingJobId, setPendingJobId] = useState('')
   const [uploading, setUploading] = useState(false)
   const [receipt, setReceipt] = useState('')
   const [error, setError] = useState('')
@@ -32,12 +34,17 @@ export default function SupplierUpload() {
     const timer = setInterval(() => Rfqs.get(rfqId).then(setRfq).catch(() => {}), 7000)
     return () => clearInterval(timer)
   }, [rfqId, rfq?.quoteJobs?.map((job) => `${job.id}:${job.status}`).join('|')])
+  useEffect(() => {
+    const completed = rfq?.quoteJobs?.find((job) => job.id === pendingJobId && job.status === 'completed')
+    if (completed?.result?.quoteId) { setSelectedQuoteId(completed.result.quoteId); setPendingJobId('') }
+  }, [rfq, pendingJobId])
 
   const upload = async (file) => {
     if (!file || !rfqId) return
     setUploading(true); setError(''); setReceipt('')
     try {
-      const job = await Rfqs.quoteUploadQueued(rfqId, file, supplierId)
+      const job = await Rfqs.quoteUploadQueued(rfqId, file, supplierId, quoteTarget)
+      setPendingJobId(job.id)
       setReceipt(`“${job.fileName}” is uploaded. You can close this page now; processing will continue.`)
       setRfq(await Rfqs.get(rfqId))
     } catch (failure) { setError(failure.message) }
@@ -53,6 +60,8 @@ export default function SupplierUpload() {
     catch (failure) { setError(failure.message) }
   }
   const finalized = rfq && (rfq.award || ['Awarded', 'Closed', 'Cancelled'].includes(rfq.status))
+  const quoteOptions = (rfq?.quotes || []).filter((quote) => quote.supplierId === supplierId).sort((a, b) => (a.optionNumber || 1) - (b.optionNumber || 1))
+  const quoteTarget = selectedQuoteId === 'new' || quoteOptions.some((quote) => quote.id === selectedQuoteId) ? selectedQuoteId : quoteOptions[0]?.id || 'new'
   const latestJob = rfq?.quoteJobs?.slice().sort((a, b) => b.createdAt - a.createdAt)[0]
   const stalled = latestJob && ['queued', 'processing'].includes(latestJob.status) && Date.now() - latestJob.updatedAt > 6 * 60_000
 
@@ -68,9 +77,10 @@ export default function SupplierUpload() {
         {!supplierId && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">This login is not linked to a supplier. Ask your administrator to create supplier credentials.</p>}
         {error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
         {rfqs === null ? <p className="mt-5 text-sm text-ink-500">Loading assigned RFQs…</p> : rfqs.length === 0 ? <p className="mt-5 text-sm text-ink-500">No RFQs are assigned to your supplier account yet.</p> : <>
-          <label className="mt-6 block"><span className="label">Assigned RFQ</span><select className="input" value={rfqId} onChange={(event) => { setRfqId(event.target.value); setReceipt(''); setRfq(null) }}>{rfqs.map((item) => <option key={item.id} value={item.id}>{item.id} — {item.title}</option>)}</select></label>
+          <label className="mt-6 block"><span className="label">Assigned RFQ</span><select className="input" value={rfqId} onChange={(event) => { setRfqId(event.target.value); setSelectedQuoteId(''); setPendingJobId(''); setReceipt(''); setRfq(null) }}>{rfqs.map((item) => <option key={item.id} value={item.id}>{item.id} — {item.title}</option>)}</select></label>
           {rfq && <>
             <div className="mt-5 rounded-xl border border-ink-100 bg-ink-50 p-4"><h2 className="font-bold">{rfq.title}</h2><p className="mt-1 text-sm text-ink-500">{rfq.lines.length} item{rfq.lines.length === 1 ? '' : 's'}{rfq.deadline ? ` · Deadline: ${rfq.deadline}` : ''}</p>{rfq.description && <p className="mt-2 text-sm text-ink-600">{rfq.description}</p>}</div>
+            <label className="mt-5 block"><span className="label">Quote option to view or replace</span><select className="input" value={quoteTarget} onChange={(event) => setSelectedQuoteId(event.target.value)}>{quoteOptions.map((quote) => <option key={quote.id} value={quote.id}>Q{quote.optionNumber || 1} · {quote.fileName || 'Individual item quote'}</option>)}<option value="new">Create alternate quote (Q{Math.max(0, ...quoteOptions.map((quote) => quote.optionNumber || 1)) + 1})</option></select><span className="mt-1 block text-xs text-ink-500">Choose an existing option to replace it, or create a separate alternate quote.</span></label>
             <div className="mt-5 flex flex-wrap items-center gap-2">
             <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={17} /> Download RFQ (.xlsx)</a>
             <label className={`btn-primary inline-flex cursor-pointer ${uploading || finalized ? 'pointer-events-none opacity-60' : ''}`}>
@@ -92,9 +102,9 @@ export default function SupplierUpload() {
         </>}
       </section>
       {rfq?.attachments?.length > 0 && <section className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><h2 className="font-bold">RFQ attachments</h2><p className="mt-1 text-xs text-ink-500">Download the buyer’s specifications and supporting files.</p><div className="mt-3 flex flex-wrap gap-2">{rfq.attachments.map((file, index) => file.id ? <a key={file.id} className="btn-outline text-sm" href={Rfqs.attachmentUrl(rfq.id, file.id)}><Download size={15} /> {file.name}</a> : <span key={index} className="text-sm text-ink-500">{file.name || file} (file unavailable)</span>)}</div></section>}
-      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><QuoteReviewTable rfq={rfq} supplierId={supplierId} allowImageUpload={can('quote.submit') && !finalized} onChanged={refresh} /></div>}
-      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><SubmissionHistory rfq={rfq} supplierId={supplierId} /></div>}
-      {rfq && can('quote.submit') && <details className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><summary className="cursor-pointer font-bold">Quote individual items instead</summary><div className="mt-4"><QuoteEditor rfq={rfq} supplierId={supplierId} disabled={!!finalized} onSaved={refresh} /></div></details>}
+      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><QuoteReviewTable rfq={rfq} supplierId={supplierId} quoteId={quoteTarget} allowImageUpload={can('quote.submit') && quoteTarget !== 'new' && !finalized} onChanged={refresh} /></div>}
+      {rfq && <div className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><SubmissionHistory rfq={rfq} supplierId={supplierId} quoteId={quoteTarget} /></div>}
+      {rfq && can('quote.submit') && <details className="rounded-2xl bg-white p-5 shadow-card sm:p-7"><summary className="cursor-pointer font-bold">Quote individual items instead</summary><div className="mt-4"><QuoteEditor rfq={rfq} supplierId={supplierId} quoteId={quoteTarget} disabled={!!finalized} onSaved={async (saved) => { if (saved?.id) setSelectedQuoteId(saved.id); await refresh() }} /></div></details>}
     </div>
   </main>
 }

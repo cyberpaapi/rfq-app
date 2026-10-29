@@ -5,37 +5,38 @@ import { Rfqs } from '../api/client'
 const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 const dash = (value) => value || '—'
 
-export default function QuoteReviewTable({ rfq, supplierId, allowImageUpload = false, onChanged }) {
+export default function QuoteReviewTable({ rfq, supplierId, quoteId, allowImageUpload = false, onChanged }) {
   const [uploadingLine, setUploadingLine] = useState('')
   const [uploadingAttachment, setUploadingAttachment] = useState('')
   const [uploadingWhole, setUploadingWhole] = useState(false)
   const [imageError, setImageError] = useState('')
-  const quote = rfq.quotes?.find((entry) => entry.supplierId === supplierId)
+  const quote = rfq.quotes?.find((entry) => entry.supplierId === supplierId && (quoteId ? entry.id === quoteId : (entry.optionNumber || 1) === 1))
+  const matchesOption = (file) => quote ? file.quoteId === quote.id || (!file.quoteId && (quote.optionNumber || 1) === 1) : quoteId !== 'new' && !file.quoteId
   const quotedLines = new Map((quote?.lines || []).map((line) => [line.lineId, line]))
-  const images = new Map((rfq.itemImages || []).filter((image) => image.supplierId === supplierId).map((image) => [image.lineId, image]))
-  const itemAttachments = (rfq.itemAttachments || []).filter((file) => file.supplierId === supplierId)
+  const images = new Map((rfq.itemImages || []).filter((image) => image.supplierId === supplierId && matchesOption(image)).map((image) => [image.lineId, image]))
+  const itemAttachments = (rfq.itemAttachments || []).filter((file) => file.supplierId === supplierId && matchesOption(file))
   const attachmentsByLine = new Map()
   for (const file of itemAttachments) attachmentsByLine.set(file.lineId, [...(attachmentsByLine.get(file.lineId) || []), file])
-  const wholeAttachments = (rfq.supplierAttachments || []).filter((file) => file.supplierId === supplierId)
+  const wholeAttachments = (rfq.supplierAttachments || []).filter((file) => file.supplierId === supplierId && matchesOption(file))
   const priced = rfq.lines.filter((line) => isPriced(quotedLines.get(line.lineId))).length
   const uploadImage = async (lineId, file) => {
     if (!file) return
     setUploadingLine(lineId); setImageError('')
-    try { await Rfqs.uploadItemImage(rfq.id, lineId, file, supplierId); await onChanged?.() }
+    try { await Rfqs.uploadItemImage(rfq.id, lineId, file, supplierId, quote?.id); await onChanged?.() }
     catch (error) { setImageError(error.message) }
     finally { setUploadingLine('') }
   }
   const uploadAttachment = async (lineId, file) => {
     if (!file) return
     setUploadingAttachment(lineId); setImageError('')
-    try { await Rfqs.uploadItemAttachment(rfq.id, lineId, file, supplierId); await onChanged?.() }
+    try { await Rfqs.uploadItemAttachment(rfq.id, lineId, file, supplierId, quote?.id); await onChanged?.() }
     catch (error) { setImageError(error.message) }
     finally { setUploadingAttachment('') }
   }
   const uploadWholeAttachment = async (file) => {
     if (!file) return
     setUploadingWhole(true); setImageError('')
-    try { await Rfqs.uploadQuoteAttachment(rfq.id, file, supplierId); await onChanged?.() }
+    try { await Rfqs.uploadQuoteAttachment(rfq.id, file, supplierId, quote?.id); await onChanged?.() }
     catch (error) { setImageError(error.message) }
     finally { setUploadingWhole(false) }
   }
@@ -43,7 +44,7 @@ export default function QuoteReviewTable({ rfq, supplierId, allowImageUpload = f
   return <section aria-label="Supplier quotation review">
     <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
       <div><h3 className="font-bold text-ink-900">RFQ items and supplier response</h3><p className="text-xs text-ink-500">{priced} of {rfq.lines.length} items have a saved price. Prices shown in USD.</p></div>
-      {quote?.hasFile && <a className="text-xs font-semibold text-brand-700 hover:underline" href={Rfqs.quoteFileUrl(rfq.id, supplierId)}>View uploaded response: {quote.fileName || quote.source}</a>}
+      {quote?.hasFile && <a className="text-xs font-semibold text-brand-700 hover:underline" href={Rfqs.quoteFileUrl(rfq.id, quote.id)}>View uploaded response: {quote.fileName || quote.source}</a>}
     </div>
     <div className="mb-3 rounded-xl border border-ink-100 bg-ink-50 p-3 text-sm">
       <div className="flex flex-wrap items-center gap-3"><b>Whole-response attachments</b>{allowImageUpload && <label className="cursor-pointer font-semibold text-brand-700 hover:underline">{uploadingWhole ? 'Uploading…' : 'Attach document'}<input type="file" hidden disabled={uploadingWhole} onChange={(event) => { uploadWholeAttachment(event.target.files?.[0]); event.target.value = '' }} /></label>}</div>
@@ -67,7 +68,7 @@ export default function QuoteReviewTable({ rfq, supplierId, allowImageUpload = f
             <td className="px-3 py-2">{dash(line.remark)}</td><td className="px-3 py-2 whitespace-nowrap">{dash(line.requiredDeliveryDate)}</td><td className="px-3 py-2">{dash(line.secondaryRequirements)}</td>
             <td className="px-3 py-2">{dash([offered?.offeredName, offered?.offeredSpec, offered?.description].filter(Boolean).join(' · '))}</td>
             <td className={`px-3 py-2 ${line.brand && offered?.brand && line.brand.trim().toLowerCase() !== offered.brand.trim().toLowerCase() ? 'bg-amber-50 font-semibold text-amber-800' : ''}`}>{dash(offered?.brand)}</td><td className={`px-3 py-2 ${line.model && offered?.model && line.model.trim().toLowerCase() !== offered.model.trim().toLowerCase() ? 'bg-amber-50 font-semibold text-amber-800' : ''}`}>{dash(offered?.model)}</td><td className="px-3 py-2">{dash(offered?.partNo)}</td>
-            <td className="px-3 py-2">{image && <a href={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId)} target="_blank" rel="noreferrer"><img className="mb-1 h-12 w-12 rounded object-cover" src={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId)} alt={`Supplier ${line.name}`} /></a>}{allowImageUpload && <label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingLine === line.lineId ? 'Uploading…' : image ? 'Replace image' : 'Upload image'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" disabled={!!uploadingLine} onChange={(event) => { uploadImage(line.lineId, event.target.files?.[0]); event.target.value = '' }} /></label>}{!image && !allowImageUpload && '—'}</td>
+            <td className="px-3 py-2">{image && <a href={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId, quote?.id)} target="_blank" rel="noreferrer"><img className="mb-1 h-12 w-12 rounded object-cover" src={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId, quote?.id)} alt={`Supplier ${line.name}`} /></a>}{allowImageUpload && <label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingLine === line.lineId ? 'Uploading…' : image ? 'Replace image' : 'Upload image'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" disabled={!!uploadingLine} onChange={(event) => { uploadImage(line.lineId, event.target.files?.[0]); event.target.value = '' }} /></label>}{!image && !allowImageUpload && '—'}</td>
             <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">{hasPrice ? money(Number(offered.rate)) : '—'}</td>
             <td className="px-3 py-2 text-right whitespace-nowrap">{hasPrice ? money(Number(offered.rate) * Number(line.qty || 0)) : '—'}</td>
             <td className="px-3 py-2 whitespace-nowrap">{dash(offered?.readyToSendDate)}</td>

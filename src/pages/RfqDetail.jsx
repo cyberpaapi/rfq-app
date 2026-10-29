@@ -59,6 +59,7 @@ export default function RfqDetail() {
   const [busy, setBusy] = useState(false)
   const [rating, setRating] = useState(null) // delivery being rated
   const [responseSupplier, setResponseSupplier] = useState('')
+  const [responseQuoteId, setResponseQuoteId] = useState('')
   const [creationDateInput, setCreationDateInput] = useState('')
   const [dateError, setDateError] = useState('')
   const [statusError, setStatusError] = useState('')
@@ -211,15 +212,16 @@ export default function RfqDetail() {
 
           {can('supplier.response.edit') && !!rfq.assignments?.length && <Card className="p-5">
             <SectionTitle>Add/edit supplier response</SectionTitle>
-            <label className="mb-4 block max-w-sm"><span className="label">Supplier</span><select className="input" value={responseSupplier} onChange={(event) => setResponseSupplier(event.target.value)}><option value="">Select invited supplier</option>{rfq.assignments.map((a) => <option key={a.supplierId} value={a.supplierId}>{a.supplierName}{responded.has(a.supplierId) ? ' ✅' : ''}</option>)}</select><span className="mt-1 block text-xs text-ink-500">✅ means a quote has been submitted.</span></label>
-            <QuoteEditor rfq={rfq} supplierId={responseSupplier} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={load} />
+            <label className="mb-4 block max-w-sm"><span className="label">Supplier</span><select className="input" value={responseSupplier} onChange={(event) => { setResponseSupplier(event.target.value); setResponseQuoteId('') }}><option value="">Select invited supplier</option>{rfq.assignments.map((a) => <option key={a.supplierId} value={a.supplierId}>{a.supplierName}{responded.has(a.supplierId) ? ' ✅' : ''}</option>)}</select><span className="mt-1 block text-xs text-ink-500">✅ means a quote has been submitted.</span></label>
+            {responseSupplier && <label className="mb-4 block max-w-sm"><span className="label">Quote option</span><select className="input" value={responseQuoteId || rfq.quotes?.find((quote) => quote.supplierId === responseSupplier)?.id || 'new'} onChange={(event) => setResponseQuoteId(event.target.value)}>{rfq.quotes?.filter((quote) => quote.supplierId === responseSupplier).map((quote) => <option key={quote.id} value={quote.id}>{quote.supplierName}-Q{quote.optionNumber || 1}</option>)}<option value="new">Create alternate quote</option></select></label>}
+            <QuoteEditor rfq={rfq} supplierId={responseSupplier} quoteId={responseQuoteId || rfq.quotes?.find((quote) => quote.supplierId === responseSupplier)?.id || 'new'} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async (saved) => { if (saved?.id) setResponseQuoteId(saved.id); await load() }} />
           </Card>}
 
           {rfq.quotes?.some((quote) => quote.submissions?.length) && <Card className="p-5">
             <SectionTitle>Supplier submission history</SectionTitle>
-            {rfq.quotes.filter((quote) => quote.submissions?.length).map((quote) => <div key={quote.supplierId} className="mb-4">
-              <p className="font-semibold text-ink-800">{quote.supplierName}</p>
-              <SubmissionHistory rfq={rfq} supplierId={quote.supplierId} canDownload={can('data.export') || can('rfq.evaluate') || can('supplier.response.edit')} />
+            {rfq.quotes.filter((quote) => quote.submissions?.length).map((quote) => <div key={quote.id} className="mb-4">
+              <p className="font-semibold text-ink-800">{quote.supplierName}-Q{quote.optionNumber || 1}</p>
+              <SubmissionHistory rfq={rfq} supplierId={quote.supplierId} quoteId={quote.id} canDownload={can('data.export') || can('rfq.evaluate') || can('supplier.response.edit')} />
             </div>)}
           </Card>}
 

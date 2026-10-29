@@ -14,6 +14,7 @@ export default function Portal() {
   const mayQuote = can('quote.submit') || can('supplier.response.edit')
   const [suppliers, setSuppliers] = useState(null)
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
+  const [selectedQuoteId, setSelectedQuoteId] = useState('')
   const [rfqs, setRfqs] = useState([])
   const [rfqId, setRfqId] = useState('')
   const [rfq, setRfq] = useState(null)
@@ -52,13 +53,16 @@ export default function Portal() {
   const myLines = rfq?.lines || []
   const quotedSupplierIds = new Set((rfq?.quotes || []).filter((quote) => quote.lines?.some(isPriced)).map((quote) => quote.supplierId))
   const alreadyQuoted = rfq?.quotes?.some((q) => q.supplierId === supplierId && q.lines?.some(isPriced))
+  const quoteOptions = (rfq?.quotes || []).filter((q) => q.supplierId === supplierId).sort((a, b) => (a.optionNumber || 1) - (b.optionNumber || 1))
+  const quoteTarget = selectedQuoteId === 'new' || quoteOptions.some((q) => q.id === selectedQuoteId) ? selectedQuoteId : quoteOptions[0]?.id || 'new'
 
   const upload = async (file) => {
     if (!file || !supplierId) return
     setUploading(true); setError(null); setResult(null)
     try {
-      const res = await Rfqs.quoteUpload(rfqId, file, supplierId)
+      const res = await Rfqs.quoteUpload(rfqId, file, supplierId, quoteTarget)
       setResult(res)
+      setSelectedQuoteId(res.quote.id)
       Rfqs.get(rfqId).then(setRfq)
     } catch (e) { setError(e.message) } finally { setUploading(false) }
   }
@@ -89,7 +93,7 @@ export default function Portal() {
         {rfqs.length === 0 ? (
           <p className="py-2 text-sm text-ink-400">{internalResponder ? 'No RFQs available yet.' : 'No RFQs assigned to you yet.'}</p>
         ) : (
-          <select value={rfqId} onChange={(e) => { setRfq(null); setSelectedSupplierId(''); setRfqId(e.target.value) }} className="input">
+          <select value={rfqId} onChange={(e) => { setRfq(null); setSelectedSupplierId(''); setSelectedQuoteId(''); setRfqId(e.target.value) }} className="input">
             {rfqs.map((r) => <option key={r.id} value={r.id}>{r.id} — {r.title}</option>)}
           </select>
         )}
@@ -105,22 +109,23 @@ export default function Portal() {
             <a href={Rfqs.exportRfqItemsUrl(rfq.id)} className="btn-outline"><Download size={16} /> Download RFQ</a>
             {mayQuote && <label className={`btn-primary cursor-pointer ${uploading || !supplierId || !can('ai.use') ? 'pointer-events-none opacity-70' : ''}`}>
               {uploading ? <><Loader2 size={16} className="animate-spin" /> Reading document…</> : <><UploadCloud size={16} /> {alreadyQuoted ? 'Re-upload quote' : 'Upload quote document'}</>}
-              <input type="file" hidden disabled={!supplierId || !mayQuote || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+              <input type="file" hidden disabled={!supplierId || !mayQuote || !can('ai.use')} accept=".xlsx,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg" onChange={(e) => { const file = e.target.files[0]; e.target.value = ''; if (file) upload(file) }} />
             </label>}
             </div>
           </div>
 
-          {internalResponder && <label className="mb-4 block max-w-md"><span className="label">Respond on behalf of supplier</span><select className="input" value={supplierId} onChange={(e) => { setSelectedSupplierId(e.target.value); setResult(null) }} disabled={!assignedSuppliers.length}><option value="">Select supplier</option>{assignedSuppliers.map((item) => <option key={item.id} value={item.id}>{item.name}{quotedSupplierIds.has(item.id) ? ' ✅' : ''}</option>)}</select><span className="mt-1 block text-xs text-ink-500">{assignedSuppliers.length ? 'Only suppliers selected for this RFQ are shown. ✅ means a quote has been submitted.' : 'No suppliers selected for this RFQ. Assign a supplier before entering a response.'}</span></label>}
+          {internalResponder && <label className="mb-4 block max-w-md"><span className="label">Respond on behalf of supplier</span><select className="input" value={supplierId} onChange={(e) => { setSelectedSupplierId(e.target.value); setSelectedQuoteId(''); setResult(null) }} disabled={!assignedSuppliers.length}><option value="">Select supplier</option>{assignedSuppliers.map((item) => <option key={item.id} value={item.id}>{item.name}{quotedSupplierIds.has(item.id) ? ' ✅' : ''}</option>)}</select><span className="mt-1 block text-xs text-ink-500">{assignedSuppliers.length ? 'Only suppliers selected for this RFQ are shown. ✅ means a quote has been submitted.' : 'No suppliers selected for this RFQ. Assign a supplier before entering a response.'}</span></label>}
+          {supplierId && <label className="mb-4 block max-w-md"><span className="label">Quote option to view or replace</span><select className="input" value={quoteTarget} onChange={(event) => setSelectedQuoteId(event.target.value)}>{quoteOptions.map((quote) => <option key={quote.id} value={quote.id}>{supplier?.name}-Q{quote.optionNumber || 1}</option>)}<option value="new">Create alternate quote (Q{Math.max(0, ...quoteOptions.map((quote) => quote.optionNumber || 1)) + 1})</option></select><span className="mt-1 block text-xs text-ink-500">Uploading or editing an existing option replaces only that option. Create alternate keeps the others for comparison.</span></label>}
 
           {error && <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {error}</div>}
           <p className="mb-3 text-xs text-ink-400">Up to 50 MB per file. Hosted originals are available for 15 days; extracted quote data stays saved.</p>
           {rfq.attachments?.length > 0 && <div className="mb-4 rounded-xl border border-ink-100 p-3"><h3 className="font-semibold text-ink-800">RFQ attachments</h3><div className="mt-2 flex flex-wrap gap-2">{rfq.attachments.map((file, index) => file.id ? <a key={file.id} className="btn-outline text-xs" href={Rfqs.attachmentUrl(rfq.id, file.id)}><Download size={14} /> {file.name}</a> : <span key={index} className="text-xs text-ink-500">{file.name || file} (file unavailable)</span>)}</div></div>}
 
           {/* The full RFQ and saved supplier response remain visible after a refresh. */}
-          {supplierId ? <QuoteReviewTable rfq={rfq} supplierId={supplierId} allowImageUpload={mayQuote && !rfq.award && !['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)} onChanged={async () => setRfq(await Rfqs.get(rfqId))} /> : <p className="text-sm text-ink-500">Select a supplier to review its assigned items and prices.</p>}
-          {supplierId && <SubmissionHistory rfq={rfq} supplierId={supplierId} />}
+          {supplierId ? <QuoteReviewTable rfq={rfq} supplierId={supplierId} quoteId={quoteTarget} allowImageUpload={mayQuote && quoteTarget !== 'new' && !rfq.award && !['Awarded', 'Closed', 'Cancelled'].includes(rfq.status)} onChanged={async () => setRfq(await Rfqs.get(rfqId))} /> : <p className="text-sm text-ink-500">Select a supplier to review its assigned items and prices.</p>}
+          {supplierId && <SubmissionHistory rfq={rfq} supplierId={supplierId} quoteId={quoteTarget} />}
 
-          {mayQuote && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async () => setRfq(await Rfqs.get(rfqId))} />}</div>}
+          {mayQuote && <div className="mt-5 border-t border-ink-100 pt-5"><h3 className="mb-3 font-bold text-ink-900">Quote individual items</h3>{!supplierId ? <p className="text-sm text-ink-500">Select a supplier to enter item prices.</p> : <QuoteEditor rfq={rfq} supplierId={supplierId} quoteId={quoteTarget} disabled={['Awarded', 'Closed', 'Cancelled'].includes(rfq.status) || !!rfq.award} onSaved={async (saved) => { if (saved?.id) setSelectedQuoteId(saved.id); setRfq(await Rfqs.get(rfqId)) }} />}</div>}
 
           {result && (
             <div className="mt-4 space-y-2">

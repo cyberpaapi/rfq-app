@@ -36,7 +36,7 @@ export default function Compare() {
 
   useEffect(() => {
     Rfqs.list().then((rfqs) => {
-      const cands = rfqs.filter((r) => r.quoteCount >= 2)
+      const cands = rfqs.filter((r) => (r.quoteOptionCount ?? r.quoteCount) >= 2)
       setCandidates(cands)
       setRfqId(cands.some((r) => r.id === requestedId) ? requestedId : cands[0]?.id || '')
     }).catch((e) => setError(e.message))
@@ -50,20 +50,20 @@ export default function Compare() {
     return () => { active = false }
   }, [rfqId]) // eslint-disable-line
 
-  const supIds = quotes.map((q) => q.supplierId)
-  const nameOf = (sid) => quotes.find((q) => q.supplierId === sid)?.supplierName || sid
-  const qline = (sid, lineId) => quotes.find((q) => q.supplierId === sid)?.lines.find((l) => l.lineId === lineId)
+  const supIds = quotes.map((q) => q.id)
+  const nameOf = (sid) => { const quote = quotes.find((q) => q.id === sid); return quote ? `${quote.supplierName}-Q${quote.optionNumber || 1}` : sid }
+  const qline = (sid, lineId) => quotes.find((q) => q.id === sid)?.lines.find((l) => l.lineId === lineId)
 
   const setCell = (sid, lineId, patch) => {
     setRfq((r) => ({ ...r, recommendation: null }))
-    setQuotes((qs) => qs.map((q) => q.supplierId !== sid ? q : { ...q, lines: q.lines.some((l) => l.lineId === lineId) ? q.lines.map((l) => l.lineId === lineId ? { ...l, ...patch } : l) : [...q.lines, { lineId, ...patch }] }))
+    setQuotes((qs) => qs.map((q) => q.id !== sid ? q : { ...q, lines: q.lines.some((l) => l.lineId === lineId) ? q.lines.map((l) => l.lineId === lineId ? { ...l, ...patch } : l) : [...q.lines, { lineId, ...patch }] }))
   }
   const saveCell = (sid, lineId, patch) => trackSave(Rfqs.editQuote(rfqId, sid, { lines: [{ lineId, ...patch }] }))
-  const setCharge = (sid, field, value) => setQuotes((currentQuotes) => currentQuotes.map((quote) => quote.supplierId === sid ? { ...quote, [field]: value } : quote))
+  const setCharge = (sid, field, value) => setQuotes((currentQuotes) => currentQuotes.map((quote) => quote.id === sid ? { ...quote, [field]: value } : quote))
   const saveCharge = (sid, field, value) => trackSave(Rfqs.editQuote(rfqId, sid, { [field]: value === '' ? 0 : Number(value) }))
   const setEtaAll = (sid, eta) => {
     setRfq((r) => ({ ...r, recommendation: null }))
-    setQuotes((qs) => qs.map((q) => q.supplierId !== sid ? q : { ...q, lines: q.lines.map((l) => ({ ...l, eta })) }))
+    setQuotes((qs) => qs.map((q) => q.id !== sid ? q : { ...q, lines: q.lines.map((l) => ({ ...l, eta })) }))
     trackSave(Rfqs.editQuote(rfqId, sid, { etaAll: eta }))
   }
 
@@ -106,9 +106,10 @@ export default function Compare() {
     </Card>
   )
 
-  const totalsBySup = quotes.map((quote) => ({ sid: quote.supplierId, ...quoteComparisonTotals(rfq?.lines || [], quote) }))
+  const totalsBySup = quotes.map((quote) => ({ sid: quote.id, ...quoteComparisonTotals(rfq?.lines || [], quote) }))
   const completeTotals = totalsBySup.filter((t) => t.complete)
   const bestTotal = completeTotals.length ? Math.min(...completeTotals.map((t) => t.grandTotal)) : null
+  const chargeInput = (total, label, field) => <input aria-label={`${label} for ${nameOf(total.sid)}`} disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="number" min="0" step="0.01" value={quotes.find((quote) => quote.id === total.sid)?.[field] ?? 0} onFocus={(event) => { event.currentTarget.dataset.original = String(Number(event.currentTarget.value) || 0) }} onChange={(event) => setCharge(total.sid, field, event.target.value)} onBlur={(event) => { if (Number(event.target.value) !== Number(event.currentTarget.dataset.original)) saveCharge(total.sid, field, event.target.value) }} className="w-28 rounded border border-ink-200 bg-white px-2 py-1 text-right text-sm focus:border-brand-400 focus:outline-none" />
   const withFile = quotes.filter((q) => q.hasFile)
   const recommendation = rfq?.recommendation || {}
   // Default weights the "best suggestion" trades off (Evaluation lets you tune these).
@@ -138,8 +139,8 @@ export default function Compare() {
                 <div className="fixed inset-0 z-40" onClick={() => setDlOpen(false)} />
                 <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-card-lg">
                   {withFile.map((q) => (
-                    <a key={q.supplierId} href={Rfqs.quoteFileUrl(rfqId, q.supplierId)} onClick={() => setDlOpen(false)} className="block px-3 py-2 text-sm hover:bg-ink-50">
-                      <span className="font-semibold text-ink-800">{q.supplierName}</span>
+                    <a key={q.id} href={Rfqs.quoteFileUrl(rfqId, q.id)} onClick={() => setDlOpen(false)} className="block px-3 py-2 text-sm hover:bg-ink-50">
+                      <span className="font-semibold text-ink-800">{nameOf(q.id)}</span>
                       <span className="block truncate text-xs text-ink-400">{q.fileName}</span>
                       {q.fileExpiresAt && <span className="block text-xs text-ink-400">Original expires {new Date(q.fileExpiresAt).toLocaleDateString()}</span>}
                     </a>
@@ -171,6 +172,8 @@ export default function Compare() {
             ))}
             <span className="ml-auto text-xs text-ink-400">Applies to every item; edit any cell individually below.</span>
           </Card>
+
+          <Card className="overflow-x-auto p-4"><h2 className="mb-2 font-bold text-ink-800">Quote totals</h2><table className="min-w-full text-sm"><thead><tr className="border-b border-ink-100 text-left"><th className="px-3 py-2">Amount (USD)</th>{totalsBySup.map((total) => <th key={total.sid} className="min-w-48 px-3 py-2 text-right">{nameOf(total.sid)}</th>)}</tr></thead><tbody><tr><th className="px-3 py-2 text-left font-semibold">Total</th>{totalsBySup.map((total) => <td key={total.sid} className="px-3 py-2 text-right">{fmt(total.total)}</td>)}</tr>{[['Duties', 'duties'], ['Freight Charges', 'freightCharges']].map(([label, field]) => <tr key={field}><th className="px-3 py-2 text-left font-medium">{label}</th>{totalsBySup.map((total) => <td key={total.sid} className="px-3 py-1 text-right">{chargeInput(total, label, field)}</td>)}</tr>)}<tr className="border-t border-ink-100 bg-emerald-50 font-bold"><th className="px-3 py-2 text-left">Grand Total</th>{totalsBySup.map((total) => <td key={total.sid} className="px-3 py-2 text-right text-emerald-800">{fmt(total.grandTotal)}</td>)}</tr></tbody></table></Card>
 
           <Card className="overflow-hidden">
             <div className="relative">
@@ -278,7 +281,7 @@ export default function Compare() {
                         {totalsBySup.map((t) => (
                           <Fragment key={t.sid}>
                             <td className="border-l border-ink-100 px-2 py-1 text-right" colSpan={2}>
-                              <input aria-label={`${label} for ${nameOf(t.sid)}`} disabled={current.readOnly || scoring || recommending || busy || !!rfq?.award} type="number" min="0" step="0.01" value={quotes.find((q) => q.supplierId === t.sid)?.[field] ?? 0} onFocus={(event) => { event.currentTarget.dataset.original = String(Number(event.currentTarget.value) || 0) }} onChange={(event) => setCharge(t.sid, field, event.target.value)} onBlur={(event) => { if (Number(event.target.value) !== Number(event.currentTarget.dataset.original)) saveCharge(t.sid, field, event.target.value) }} className="w-28 rounded border border-ink-200 bg-white px-2 py-1 text-right text-sm focus:border-brand-400 focus:outline-none" />
+                              {chargeInput(t, label, field)}
                             </td>
                             <td colSpan={3}></td>
                           </Fragment>

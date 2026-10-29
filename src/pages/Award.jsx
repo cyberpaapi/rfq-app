@@ -57,6 +57,7 @@ export default function Award() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
   const [allocation, setAllocation] = useState(null) // lineId -> supplierId
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState({}) // supplierId -> quote id
 
   useEffect(() => {
     Promise.all([Rfqs.list(), Suppliers.list()]).then(([rfqs, sups]) => {
@@ -75,7 +76,18 @@ export default function Award() {
     return () => { active = false }
   }, [rfqId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const quotes = rfq?.quotes || []
+  useEffect(() => {
+    if (!rfq?.award) return
+    const awardedOptions = rfq.award.type === 'full' ? [rfq.award] : rfq.award.splits || []
+    setSelectedQuoteIds(Object.fromEntries(awardedOptions.filter((option) => option.quoteId).map((option) => [option.supplierId, option.quoteId])))
+  }, [rfq?.id, rfq?.award])
+  useEffect(() => {
+    if (method !== 'ai' || !rfq?.recommendation) return
+    setSelectedQuoteIds((previous) => ({ ...Object.fromEntries(Object.values(rfq.recommendation).filter((pick) => pick.quoteId).map((pick) => [pick.supplierId, pick.quoteId])), ...previous }))
+  }, [rfq?.id, rfq?.recommendation, method])
+
+  const allQuotes = rfq?.quotes || []
+  const quotes = [...new Set(allQuotes.map((quote) => quote.supplierId))].map((supplierId) => allQuotes.find((quote) => quote.id === selectedQuoteIds[supplierId]) || allQuotes.find((quote) => quote.supplierId === supplierId && (quote.optionNumber || 1) === 1) || allQuotes.find((quote) => quote.supplierId === supplierId)).filter(Boolean)
   const supIds = [...new Set(quotes.map((q) => q.supplierId))]
   const scoresOf = (sid) => suppliers[sid]?.scores || { price: 70, quality: 70, delivery: 70 }
   const nameOf = (sid) => quotes.find((q) => q.supplierId === sid)?.supplierName || suppliers[sid]?.name || sid || 'No eligible supplier'
@@ -145,7 +157,7 @@ export default function Award() {
 
   const awardFull = async () => {
     setBusy(true)
-    try { await Rfqs.award(rfqId, { type: 'full', supplierId: winner, amount: totalFor(winner) }); flash(`Awarded to ${nameOf(winner)}`); load() } catch (e) { flash(e.message) } finally { setBusy(false) }
+    try { await Rfqs.award(rfqId, { type: 'full', supplierId: winner, quoteId: quotes.find((quote) => quote.supplierId === winner)?.id, amount: totalFor(winner) }); flash(`Awarded to ${nameOf(winner)}`); load() } catch (e) { flash(e.message) } finally { setBusy(false) }
   }
   const awardSplit = async () => {
     if (!confirmPartial()) return
@@ -160,7 +172,7 @@ export default function Award() {
           if (isPriced(ql) && suppliers[q.supplierId]?.qualified !== false && (best === null || Number(ql.rate) < best.rate)) best = { sid: q.supplierId, rate: Number(ql.rate) }
         }
         if (best) {
-          bySupplier[best.sid] ??= { supplierId: best.sid, lineIds: [], amount: 0 }
+          bySupplier[best.sid] ??= { supplierId: best.sid, quoteId: quotes.find((quote) => quote.supplierId === best.sid)?.id, lineIds: [], amount: 0 }
           bySupplier[best.sid].lineIds.push(line.lineId)
           bySupplier[best.sid].amount += best.rate * (Number(line.qty) || 0)
         }
@@ -215,7 +227,7 @@ export default function Award() {
   const runAiRecommend = async () => {
     setBusy(true)
     try {
-      const r = await Rfqs.recommend(rfqId, weights)
+      const r = await Rfqs.recommend(rfqId, weights, selectedQuoteIds)
       const fresh = await Rfqs.get(rfqId); setRfq(fresh)
       const rec = fresh.recommendation || {}
       const alloc = {}
@@ -232,7 +244,7 @@ export default function Award() {
     if (!confirmPartial()) return
     setBusy(true)
     try {
-      const awards = groups.map((s) => ({ supplierId: s.supplierId, lineIds: s.lines.map((l) => l.lineId), amount: s.totalCost }))
+      const awards = groups.map((s) => ({ supplierId: s.supplierId, quoteId: quotes.find((quote) => quote.supplierId === s.supplierId)?.id, lineIds: s.lines.map((l) => l.lineId), amount: s.totalCost }))
       const amount = awards.reduce((a, x) => a + x.amount, 0)
       await Rfqs.award(rfqId, { type: 'split', awards, amount })
       flash(`Awarded across ${awards.length} suppliers`); load()
@@ -268,6 +280,8 @@ export default function Award() {
           <button onClick={() => chooseMethod('ai')} className={`btn ${method === 'ai' ? 'btn-primary' : 'btn-outline'}`}><BrandIcon name="recommend" size={24} /> AI Recommended</button>
         </div>
       </Card>
+
+      {allQuotes.some((quote) => allQuotes.filter((other) => other.supplierId === quote.supplierId).length > 1) && <Card className="p-4"><h2 className="font-semibold text-ink-800">Quote option used for award</h2><p className="mb-3 text-xs text-ink-500">Comparison shows every option separately. Choose one option per supplier for ranking, segregation, and award; the awarded supplier remains the same.</p><div className="flex flex-wrap gap-3">{supIds.map((sid) => { const options = allQuotes.filter((quote) => quote.supplierId === sid); return options.length > 1 && <label key={sid} className="min-w-48"><span className="label">{nameOf(sid)}</span><select className="input" value={quotes.find((quote) => quote.supplierId === sid)?.id || ''} onChange={(event) => { setSelectedQuoteIds((previous) => ({ ...previous, [sid]: event.target.value })); setAllocation(null) }} disabled={!!rfq.award}>{options.map((quote) => <option key={quote.id} value={quote.id}>Q{quote.optionNumber || 1} · {quote.fileName || 'Individual items'}</option>)}</select></label> })}</div></Card>}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">

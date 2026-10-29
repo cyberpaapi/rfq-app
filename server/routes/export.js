@@ -10,31 +10,34 @@ const router = Router()
 // For each RFQ line decide which supplier "won" it and at what rate.
 // Award-aware: full award -> that supplier; split -> per-line supplier; else cheapest quote.
 function resolveWinners(rfq, quotes) {
-  const rateOf = (supplierId, lineId) => {
-    const q = quotes.find((x) => x.supplierId === supplierId)
+  const rateOf = (supplierId, quoteId, lineId) => {
+    const q = quoteId ? quotes.find((x) => x.id === quoteId && x.supplierId === supplierId) : quotes.find((x) => x.supplierId === supplierId)
     const ql = q?.lines.find((l) => l.lineId === lineId)
     return ql ? Number(ql.rate) || 0 : null
   }
 
   return rfq.lines.map((line) => {
-    let supplierId = null
+    let supplierId = null, quoteId = null
     if (rfq.award?.type === 'full') {
       supplierId = rfq.award.supplierId
+      quoteId = rfq.award.quoteId
     } else if (rfq.award?.type === 'split') {
       const split = rfq.award.splits?.find((s) => s.lineIds?.includes(line.lineId))
       supplierId = split?.supplierId || null
+      quoteId = split?.quoteId || null
     }
     // Fallback / no award: cheapest quote for this line.
     if (!supplierId && !rfq.award) {
       let best = null
       for (const q of quotes) {
         const ql = q.lines.find((l) => l.lineId === line.lineId)
-        if (isPriced(ql) && (best === null || Number(ql.rate) < best.rate)) best = { supplierId: q.supplierId, rate: Number(ql.rate) || 0 }
+        if (isPriced(ql) && (best === null || Number(ql.rate) < best.rate)) best = { supplierId: q.supplierId, quoteId: q.id, rate: Number(ql.rate) || 0 }
       }
       supplierId = best?.supplierId || null
+      quoteId = best?.quoteId || null
     }
     const supplier = supplierId ? store.find('suppliers', supplierId) : null
-    const rate = supplierId ? rateOf(supplierId, line.lineId) || 0 : 0
+    const rate = supplierId ? rateOf(supplierId, quoteId, line.lineId) || 0 : 0
     return { line, supplierId, supplierName: supplier?.name || '', rate }
   })
 }
@@ -167,7 +170,7 @@ router.get('/comparison/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
-  const sup = quotes.map((q) => ({ id: q.supplierId, name: q.supplierName, lines: Object.fromEntries(q.lines.map((l) => [l.lineId, l])), totals: quoteComparisonTotals(rfq.lines, q) }))
+  const sup = quotes.map((q) => ({ id: q.id, name: `${q.supplierName}-Q${q.optionNumber || 1}`, lines: Object.fromEntries(q.lines.map((l) => [l.lineId, l])), totals: quoteComparisonTotals(rfq.lines, q) }))
 
   const rows = rfq.lines.map((line, i) => {
     const row = { 'S.No': i + 1, 'Item': line.name, 'Requirement': [line.spec, line.description].filter(Boolean).join(' — '), 'Qty': line.qty }

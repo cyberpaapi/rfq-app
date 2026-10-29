@@ -11,7 +11,7 @@ import { inspectUploadedFile, readQueuedBlob } from '../lib/documents.js'
 import { extractDocument } from '../lib/extract.js'
 import { extractQuote, matchQuoteLines, scoreQuality, recommendBestPerItem } from '../lib/ai.js'
 
-import { isPriced, validateAward } from '../../shared/evaluation.js'
+import { isPriced, quoteComparisonTotals, validateAward } from '../../shared/evaluation.js'
 import { recordAction } from '../lib/diagnostics.js'
 import { documentDownload } from '../lib/documents.js'
 import { roleCan } from '../../shared/roles.js'
@@ -75,7 +75,11 @@ const publicQuoteJob = (job) => ({ id: job.id, supplierId: job.supplierId, statu
 router.get('/', (req, res) => {
   const internal = !req.supplierId && (roleCan(req.accessRole, 'workspace.view') || roleCan(req.accessRole, 'portal.access') || roleCan(req.accessRole, 'supplier.response.edit'))
   const list = store.all('rfqs').filter((r) => (!req.supplierId || r.status !== 'Draft') && (internal || r.assignments?.some((a) => a.supplierId === req.supplierId)))
-  res.json(list.map((r) => internal ? { ...publicRfqFiles(r), quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced)).length } : { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }))
+  res.json(list.map((r) => {
+    if (!internal) return { id: r.id, title: r.title, status: r.status, creationDate: rfqCreationDate(r), assignments: r.assignments.filter((a) => a.supplierId === req.supplierId) }
+    const priced = store.all('quotes').filter((q) => q.rfqId === r.id && q.lines?.some(isPriced))
+    return { ...publicRfqFiles(r), quoteJobs: (r.quoteJobs || []).map(publicQuoteJob), quoteCount: new Set(priced.map((q) => q.supplierId)).size, quoteOptionCount: priced.length }
+  }))
 })
 
 // Don't ship the (potentially large) base64 file blob in the normal payload.
@@ -84,6 +88,23 @@ const stripFile = (q) => {
   const { fileData, fileBlob, ...rest } = q
   return { ...rest, submissions: previousSubmissions(q).map(publicSubmission), hasFile: !!fileData || !!fileBlob, fileExpiresAt: fileBlob?.expiresAt || null }
 }
+const quoteOptions = (rfqId, supplierId) => store.all('quotes').filter((q) => q.rfqId === rfqId && q.supplierId === supplierId)
+const quoteOption = (rfqId, supplierId, target) => {
+  const options = quoteOptions(rfqId, supplierId)
+  if (target === 'new') return { previous: null, optionNumber: Math.max(0, ...options.map((q) => q.optionNumber || 1)) + 1 }
+  if (target) {
+    const previous = options.find((q) => q.id === target)
+    if (!previous) throw Object.assign(new Error('The selected quote option does not belong to this supplier and RFQ.'), { status: 400 })
+    return { previous, optionNumber: previous.optionNumber || 1 }
+  }
+  return { previous: options.find((q) => (q.optionNumber || 1) === 1) || null, optionNumber: 1 }
+}
+const mediaOption = (rfqId, supplierId, target) => {
+  if (!target) return null // existing files without an option belong to Q1
+  if (!quoteOptions(rfqId, supplierId).some((quote) => quote.id === target)) throw Object.assign(new Error('Save this quote option before adding photos or attachments.'), { status: 400 })
+  return target
+}
+const sameMediaOption = (file, target, rfqId, supplierId) => file.quoteId === target || (!file.quoteId && target === quoteOption(rfqId, supplierId).previous?.id)
 const submission = (quote, { kind, at, actorName, changedLineIds, file = null }) => ({
   id: newId('QSUB'), kind, at, actor: actorName, changedLineIds,
   lines: structuredClone(quote.lines || []), sourceCurrency: quote.sourceCurrency || quote.currency || 'USD',
@@ -138,11 +159,13 @@ router.post('/:id/item-images/:lineId', upload.single('file'), (req, res) => {
   if (rfq.status === 'Draft' || finalized(rfq)) return res.status(409).json({ error: 'This RFQ is not accepting supplier responses.' })
   const supplierId = req.query.supplierId || req.body?.supplierId
   if (!store.find('suppliers', supplierId) || !assignedRfqLines(rfq, supplierId).some((line) => line.lineId === req.params.lineId)) return res.status(403).json({ error: 'This item is not assigned to that supplier.' })
+  let quoteId
+  try { quoteId = mediaOption(rfq.id, supplierId, req.query.quoteId || req.body?.quoteId) } catch (error) { return res.status(error.status || 400).json({ error: error.message }) }
   if (!req.file) return res.status(400).json({ error: 'Choose an image.' })
   try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/item-images/${req.params.lineId}` }).contentType }
   catch (error) { return res.status(400).json({ error: error.message }) }
-  const file = { ...storedFile(req.file), supplierId, lineId: req.params.lineId }
-  store.update('rfqs', rfq.id, { itemImages: [...(rfq.itemImages || []).filter((image) => image.supplierId !== supplierId || image.lineId !== req.params.lineId), file] })
+  const file = { ...storedFile(req.file), supplierId, quoteId, lineId: req.params.lineId }
+  store.update('rfqs', rfq.id, { itemImages: [...(rfq.itemImages || []).filter((image) => image.supplierId !== supplierId || image.lineId !== req.params.lineId || !sameMediaOption(image, quoteId, rfq.id, supplierId)), file] })
   req.file.retainBlob = true
   store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Uploaded supplier item image', field: 'Supplier response', value: `${supplierId}: ${file.name}` })
   res.status(201).json(publicAttachment(file))
@@ -153,7 +176,9 @@ router.get('/:id/item-images/:lineId/:supplierId', async (req, res, next) => {
     const rfq = store.find('rfqs', req.params.id)
     if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
     if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This image belongs to another supplier.' })
-    await sendStoredFile(res, (rfq.itemImages || []).find((image) => image.supplierId === req.params.supplierId && image.lineId === req.params.lineId), true)
+    const quoteId = req.query.quoteId || quoteOption(rfq.id, req.params.supplierId).previous?.id || null
+    if (req.query.quoteId) mediaOption(rfq.id, req.params.supplierId, quoteId)
+    await sendStoredFile(res, (rfq.itemImages || []).find((image) => image.supplierId === req.params.supplierId && image.lineId === req.params.lineId && sameMediaOption(image, quoteId, rfq.id, req.params.supplierId)), true)
   } catch (error) { next(error) }
 })
 
@@ -165,10 +190,12 @@ router.post('/:id/quote-attachments', upload.single('file'), (req, res) => {
   if (rfq.status === 'Draft' || finalized(rfq)) return res.status(409).json({ error: 'This RFQ is not accepting supplier responses.' })
   const supplierId = req.query.supplierId || req.body?.supplierId
   if (!rfq.assignments?.some((assignment) => assignment.supplierId === supplierId)) return res.status(403).json({ error: 'This supplier is not assigned to the RFQ.' })
+  let quoteId
+  try { quoteId = mediaOption(rfq.id, supplierId, req.query.quoteId || req.body?.quoteId) } catch (error) { return res.status(error.status || 400).json({ error: error.message }) }
   if (!req.file) return res.status(400).json({ error: 'Choose an attachment.' })
   try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/quote-attachments` }).contentType }
   catch (error) { return res.status(400).json({ error: error.message }) }
-  const file = { ...storedFile(req.file), supplierId }
+  const file = { ...storedFile(req.file), supplierId, quoteId }
   store.update('rfqs', rfq.id, { supplierAttachments: [...(rfq.supplierAttachments || []), file] })
   req.file.retainBlob = true
   store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Attached supplier response file', field: 'Supplier response', value: `${supplierId}: ${file.name}` })
@@ -191,10 +218,12 @@ router.post('/:id/item-attachments/:lineId', upload.single('file'), (req, res) =
   if (rfq.status === 'Draft' || finalized(rfq)) return res.status(409).json({ error: 'This RFQ is not accepting supplier responses.' })
   const supplierId = req.query.supplierId || req.body?.supplierId
   if (!assignedRfqLines(rfq, supplierId).some((line) => line.lineId === req.params.lineId)) return res.status(403).json({ error: 'This item is not assigned to that supplier.' })
+  let quoteId
+  try { quoteId = mediaOption(rfq.id, supplierId, req.query.quoteId || req.body?.quoteId) } catch (error) { return res.status(error.status || 400).json({ error: error.message }) }
   if (!req.file) return res.status(400).json({ error: 'Choose an attachment.' })
   try { req.file.mimetype = validateUpload({ name: req.file.originalname, size: req.file.size, target: `/rfqs/${rfq.id}/item-attachments/${req.params.lineId}` }).contentType }
   catch (error) { return res.status(400).json({ error: error.message }) }
-  const file = { ...storedFile(req.file), supplierId, lineId: req.params.lineId }
+  const file = { ...storedFile(req.file), supplierId, quoteId, lineId: req.params.lineId }
   store.update('rfqs', rfq.id, { itemAttachments: [...(rfq.itemAttachments || []), file] })
   req.file.retainBlob = true
   store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Attached supplier item file', field: 'Supplier response', value: `${supplierId}: ${req.params.lineId}: ${file.name}` })
@@ -214,8 +243,8 @@ router.get('/:id/item-attachments/:lineId/:fileId', async (req, res, next) => {
 // Download the exact response document a supplier uploaded.
 router.get('/:id/quote-file/:supplierId', async (req, res, next) => {
   try {
-    if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
-    const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
+    const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && (q.id === req.params.supplierId || q.supplierId === req.params.supplierId))
+    if (req.supplierId && req.supplierId !== quote?.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
     if (quote?.fileBlob) {
       res.setHeader('Cache-Control', 'no-store')
       return res.redirect(302, await documentDownload(quote.fileBlob))
@@ -229,10 +258,10 @@ router.get('/:id/quote-file/:supplierId', async (req, res, next) => {
 
 router.get('/:id/quote-submissions/:supplierId/:submissionId/file', async (req, res, next) => {
   try {
-    if (req.supplierId && req.supplierId !== req.params.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
     const rfq = store.find('rfqs', req.params.id)
     if (!rfq) return res.status(404).json({ error: 'RFQ not found.' })
-    const quote = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === req.params.supplierId)
+    const quote = store.all('quotes').find((q) => q.rfqId === rfq.id && (q.id === req.params.supplierId || q.supplierId === req.params.supplierId))
+    if (req.supplierId && req.supplierId !== quote?.supplierId) return res.status(403).json({ error: 'This file belongs to another supplier.' })
     const entry = quote && previousSubmissions(quote).find((s) => s.id === req.params.submissionId)
     if (!entry?.fileBlob && !entry?.fileData) return res.status(404).json({ error: 'No file saved for this submission.' })
     await sendStoredFile(res, { blob: entry.fileBlob, data: entry.fileData, name: entry.fileName || 'response', mime: entry.fileMime })
@@ -246,14 +275,14 @@ router.put('/:id/quotes/:supplierId', (req, res) => {
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
   if (rfq.status === 'Draft') return res.status(409).json({ error: 'Publish the RFQ before accepting quotes.' })
   if (finalized(rfq)) return res.status(409).json({ error: 'This RFQ is finalized.' })
-  const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && q.supplierId === req.params.supplierId)
+  const quote = store.all('quotes').find((q) => q.rfqId === req.params.id && (q.id === req.params.supplierId || q.supplierId === req.params.supplierId))
   if (!quote) return res.status(404).json({ error: 'quote not found' })
   const { lines = [], etaAll, duties, freightCharges } = req.body || {}
   if (!Array.isArray(lines)) return res.status(400).json({ error: 'lines must be an array' })
   for (const [label, value] of [['Duties', duties], ['Freight charges', freightCharges]]) {
     if (value !== undefined && (value === '' || value === null || !Number.isFinite(Number(value)) || Number(value) < 0)) return res.status(400).json({ error: `${label} must be a non-negative amount.` })
   }
-  const assignedIds = new Set(assignedRfqLines(rfq, req.params.supplierId).map((line) => line.lineId))
+  const assignedIds = new Set(assignedRfqLines(rfq, quote.supplierId).map((line) => line.lineId))
   for (const line of lines) {
     if (!rfq.lines.some((l) => l.lineId === line.lineId)) return res.status(400).json({ error: 'Unknown RFQ item.' })
     if (!assignedIds.has(line.lineId)) return res.status(400).json({ error: 'Quote only items assigned to this supplier.' })
@@ -333,7 +362,7 @@ router.post('/:id/score-quality', async (req, res) => {
     res.json({ scored, engine: process.env.OPENAI_API_KEY ? 'gpt-5.4-mini' : 'skipped (no key)' })
   } catch (err) {
     console.error('[score-quality] error:', err)
-    res.status(500).json({ error: err.message })
+    res.status(err.status || 500).json({ error: err.message })
   }
 })
 
@@ -353,7 +382,15 @@ router.post('/:id/recommend', async (req, res) => {
     if (Object.values(weights).some((v) => !Number.isFinite(v) || v < 0) || weightTotal <= 0) return res.status(400).json({ error: 'Choose non-negative weights with a positive total.' })
     for (const key of Object.keys(weights)) weights[key] = weights[key] / weightTotal * 100
     const snapshot = evaluationSnapshot(rfq.id)
-    const quotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
+    const allQuotes = store.all('quotes').filter((q) => q.rfqId === rfq.id)
+    const chosenIds = req.body?.quoteIds || {}
+    const quotes = [...new Set(allQuotes.map((q) => q.supplierId))].map((supplierId) => {
+      const options = allQuotes.filter((q) => q.supplierId === supplierId)
+      return options.find((q) => q.id === chosenIds[supplierId]) || options.sort((a, b) => {
+        const left = quoteComparisonTotals(rfq.lines, a), right = quoteComparisonTotals(rfq.lines, b)
+        return Number(right.complete) - Number(left.complete) || right.count - left.count || left.grandTotal - right.grandTotal
+      })[0]
+    })
     const nameOf = (sid) => store.find('suppliers', sid)?.name || quotes.find((q) => q.supplierId === sid)?.supplierName || sid
 
     const rows = []
@@ -363,11 +400,11 @@ router.post('/:id/recommend', async (req, res) => {
       quotes.forEach((q) => {
         const ql = q.lines.find((l) => l.lineId === line.lineId)
         if (!isPriced(ql) || store.find('suppliers', q.supplierId)?.qualified === false) return
-        cands.push({ id: q.supplierId, name: nameOf(q.supplierId), rate: Number(ql.rate) || 0, eta: ql.eta || '', quality: ql.qualityScore ?? null, description: [ql.offeredName, ql.offeredSpec, ql.brand && `Brand: ${ql.brand}`, ql.model && `Model: ${ql.model}`, ql.description || ql.specNotes || ql.remark].filter(Boolean).join(' — ') })
+        cands.push({ id: q.supplierId, supplierId: q.supplierId, quoteId: q.id, name: `${nameOf(q.supplierId)}-Q${q.optionNumber || 1}`, rate: Number(ql.rate) || 0, eta: ql.eta || '', quality: ql.qualityScore ?? null, description: [ql.offeredName, ql.offeredSpec, ql.brand && `Brand: ${ql.brand}`, ql.model && `Model: ${ql.model}`, ql.description || ql.specNotes || ql.remark].filter(Boolean).join(' — ') })
       })
       if (!cands.length) return
       ref.push({ lineId: line.lineId, suppliers: cands })
-      rows.push({ i: rows.length, item: [line.name, line.spec, line.description].filter(Boolean).join(' — '), qty: line.qty, suppliers: cands.map(({ id, ...s }) => ({ supplierId: id, ...s })) })
+      rows.push({ i: rows.length, item: [line.name, line.spec, line.description].filter(Boolean).join(' — '), qty: line.qty, suppliers: cands.map(({ id, supplierId, quoteId, ...s }) => ({ supplierId: id, ...s })) })
     })
 
     recordAction('recommendation.started', { rfqId: rfq.id, weights, eligibleItems: rows.length, totalItems: rfq.lines.length })
@@ -379,7 +416,7 @@ router.post('/:id/recommend', async (req, res) => {
       if (!pick?.supplierId) return
       const chosen = r.suppliers.find((s) => s.id === pick.supplierId)
       if (!chosen) return
-      recommendation[r.lineId] = { supplierId: chosen.id, supplierName: chosen.name, reason: pick.reason }
+      recommendation[r.lineId] = { supplierId: chosen.supplierId, quoteId: chosen.quoteId, supplierName: chosen.name, reason: pick.reason }
     })
     if (rows.length && !Object.keys(recommendation).length) return res.status(503).json({ error: 'AI could not produce valid recommendations. Use weighted scoring or try again.' })
     recordAction('recommendation.result', { rfqId: rfq.id, supplierItemCounts: Object.values(recommendation).reduce((counts, pick) => { counts[pick.supplierId] = (counts[pick.supplierId] || 0) + 1; return counts }, {}) })
@@ -600,7 +637,9 @@ router.post('/:id/quote', (req, res) => {
   if (!Array.isArray(b.lines) || (!b.lines.length && !replaceLines) || b.lines.some((l) => !rfq.lines.some((item) => item.lineId === l.lineId) || !Number.isFinite(Number(l.rate)) || Number(l.rate) < 0) || new Set(b.lines.map((l) => l.lineId)).size !== b.lines.length) return res.status(400).json({ error: 'Quote must contain unique RFQ items with non-negative prices.' })
   if (b.lines.some((line) => !assignedIds.has(line.lineId))) return res.status(400).json({ error: 'Quote only items assigned to this supplier.' })
   if (b.lines.some((line) => line.readyToSendDate !== undefined && line.readyToSendDate !== '' && !validDate(line.readyToSendDate))) return res.status(400).json({ error: 'Ready to send date must be a valid date.' })
-  const existing = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
+  let selected
+  try { selected = quoteOption(rfq.id, supplier.id, b.quoteId) } catch (error) { return res.status(400).json({ error: error.message }) }
+  const { previous: existing, optionNumber } = selected
   const priced = b.lines.filter(isPriced)
   if (!priced.length && !existing) return res.status(400).json({ error: 'Enter at least one positive price before submitting.' })
   const changed = new Map(b.lines.map((l) => [l.lineId, l]))
@@ -619,7 +658,7 @@ router.post('/:id/quote', (req, res) => {
     ...(existing || {}), id: existing?.id || newId('QTE'),
     rfqId: rfq.id,
     supplierId: b.supplierId || null,
-    supplierName: supplier.name,
+    supplierName: supplier.name, optionNumber,
     lines,
     lineRevisions: { ...Object.fromEntries(Object.entries(existing?.lineRevisions || {}).filter(([id]) => assignedIds.has(id))), ...Object.fromEntries(b.lines.map((line) => [line.lineId, revisedAt])) },
     paymentTerms: b.paymentTerms ?? existing?.paymentTerms ?? '',
@@ -640,7 +679,7 @@ router.post('/:id/quote', (req, res) => {
   invalidateRecommendation(rfq.id)
   // First response moves a Published RFQ forward.
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
-  store.logAudit({ rfqId: rfq.id, user: actor(req), action: existing ? 'Updated supplier quotation' : 'Submitted supplier quotation', field: 'Quotes', old: '', value: `${supplier.name}: ${lines.length} quoted item(s)` })
+  store.logAudit({ rfqId: rfq.id, user: actor(req), action: existing ? 'Updated supplier quotation' : 'Submitted supplier quotation', field: 'Quotes', old: '', value: `${supplier.name}-Q${optionNumber}: ${lines.length} quoted item(s)` })
   store.notify({ type: 'response', title: `New quote from ${quote.supplierName} on ${rfq.title}`, rfqId: rfq.id })
   res.status(existing ? 200 : 201).json(stripFile(quote))
 })
@@ -676,7 +715,7 @@ async function parseQuoteFromFile(rfq, supplierId, file) {
     total: assignedLines.length, unmatched: assignedLines.filter((_, i) => map[i] < 0).map((line) => line.name) }
 }
 
-function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now()) {
+function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(), targetQuoteId) {
   const rfq = store.find('rfqs', rfqId)
   const supplier = store.find('suppliers', supplierId)
   if (!rfq || !supplier) throw new Error('RFQ or supplier was removed while processing.')
@@ -685,7 +724,7 @@ function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(
   const assignedIds = assignedRfqLines(rfq, supplierId).map((line) => line.lineId)
   if (!assignedIds.length) throw new Error('No RFQ items are assigned to this supplier.')
   if (assignedIds.join('|') !== parsed.rfqLineIds.join('|')) throw new Error('Assigned RFQ items changed during processing. Retry this upload.')
-  const previous = store.all('quotes').find((q) => q.rfqId === rfq.id && q.supplierId === supplier.id)
+  const { previous, optionNumber } = quoteOption(rfq.id, supplier.id, targetQuoteId)
   // A partial document changes only matched items. A slower, older upload must
   // never overwrite an item already revised by a later upload or manual entry.
   const matchedIds = new Set(parsed.matchedIds)
@@ -702,7 +741,7 @@ function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(
         paymentTerms: old?.paymentTerms || '', leadTime: line.leadTime || old?.leadTime || '', warranty: line.warranty || old?.warranty || '' }
     })]
   const quoteData = {
-    ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name,
+    ...(previous || {}), id: previous?.id || newId('QTE'), rfqId: rfq.id, supplierId: supplier.id, supplierName: supplier.name, optionNumber,
     lines: mergedLines, lineRevisions: { ...(previous?.lineRevisions || {}), ...Object.fromEntries([...latestIds].map((id) => [id, uploadedAt])) },
     paymentTerms: previous?.paymentTerms || '', notes: `Parsed from ${file.originalname}`, source: file.originalname,
     // keep the original file so the buyer can re-download the exact response
@@ -724,7 +763,7 @@ function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(
   invalidateRecommendation(rfq.id)
   const quote = previous ? store.update('quotes', previous.id, quoteData) : store.insert('quotes', quoteData)
   if (rfq.status === 'Published') store.update('rfqs', rfq.id, { status: 'Responses Received' })
-  store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Uploaded quotation document', field: 'Quotes', old: '', value: file.originalname })
+  store.logAudit({ rfqId: rfq.id, user: supplier.name, action: 'Uploaded quotation document', field: 'Quotes', old: '', value: `${supplier.name}-Q${optionNumber}: ${file.originalname}` })
   store.notify({ type: 'response', title: `New quote from ${supplier.name} on ${rfq.title}`, rfqId: rfq.id })
 
   file.retainBlob = true
@@ -736,10 +775,10 @@ function saveParsedQuote(rfqId, supplierId, file, parsed, uploadedAt = Date.now(
   }
 }
 
-async function buildQuoteFromFile(rfq, supplier, file) {
+async function buildQuoteFromFile(rfq, supplier, file, targetQuoteId) {
   if (!rfq.assignments.some((assignment) => assignment.supplierId === supplier.id)) throw new Error('Supplier must be assigned to this RFQ.')
   const parsed = await parseQuoteFromFile(rfq, supplier.id, file)
-  return saveParsedQuote(rfq.id, supplier.id, file, parsed)
+  return saveParsedQuote(rfq.id, supplier.id, file, parsed, Date.now(), targetQuoteId)
 }
 
 const JOB_TIMEOUT_MS = 6 * 60_000
@@ -768,9 +807,9 @@ async function processQueuedQuote(rfqId, jobId) {
       const current = store.find('rfqs', rfqId)
       const active = findQuoteJob(current, jobId)
       if (!active || active.status === 'completed') return
-      const result = saveParsedQuote(rfqId, job.supplierId, file, parsed, job.createdAt)
+      const result = saveParsedQuote(rfqId, job.supplierId, file, parsed, job.createdAt, job.quoteId)
       updateQuoteJob(store.find('rfqs', rfqId), jobId, { status: 'completed', completedAt: Date.now(),
-        result: { matched: result.matched, priced: result.quote.lines.filter(isPriced).length, total: result.total, unmatched: result.unmatched, source: file.originalname }, file: { ...job.file, localPath: undefined } })
+        result: { quoteId: result.quote.id, matched: result.matched, priced: result.quote.lines.filter(isPriced).length, total: result.total, unmatched: result.unmatched, source: file.originalname }, file: { ...job.file, localPath: undefined } })
     })
     if (job.file.localPath) await unlink(job.file.localPath).catch(() => {})
   } catch (error) {
@@ -815,7 +854,8 @@ router.post('/:id/quote-upload-queue', (req, res, next) => req.is('application/j
       await writeFile(localPath, req.file.buffer)
       file = { name: checked.name, size: checked.size, contentType: checked.contentType, localPath }
     } else return res.status(400).json({ error: 'Upload a quotation file.' })
-    const job = { id, supplierId: supplier.id, rfqId: rfq.id, status: 'queued', attempts: 0, file,
+    quoteOption(rfq.id, supplier.id, req.body?.quoteId || req.query.quoteId)
+    const job = { id, supplierId: supplier.id, rfqId: rfq.id, quoteId: req.body?.quoteId || req.query.quoteId || null, status: 'queued', attempts: 0, file,
       createdAt: Date.now(), updatedAt: Date.now() }
     store.update('rfqs', rfq.id, { quoteJobs: [...(rfq.quoteJobs || []), job] })
     store.logAudit({ rfqId: rfq.id, user: actor(req), action: 'Queued quotation upload', field: 'Quotes', value: `${supplier.name}: ${file.name}` })
@@ -850,10 +890,10 @@ router.post('/:id/quote-upload', upload.single('file'), async (req, res) => {
     const supplier = store.find('suppliers', req.query.supplierId || req.body?.supplierId)
     if (!supplier) return res.status(400).json({ error: 'supplierId is required' })
     if (!rfq.assignments.some((a) => a.supplierId === supplier.id)) return res.status(403).json({ error: 'Supplier is not assigned to this RFQ.' })
-    res.status(201).json(await buildQuoteFromFile(rfq, supplier, req.file))
+    res.status(201).json(await buildQuoteFromFile(rfq, supplier, req.file, req.body?.quoteId || req.query.quoteId))
   } catch (err) {
     console.error('[quote-upload] error:', err)
-    res.status(500).json({ error: err.message })
+    res.status(err.status || 500).json({ error: err.message })
   }
 })
 
@@ -883,10 +923,10 @@ router.post('/:id/respond', upload.single('file'), async (req, res) => {
       const assignment = { id: newId('ASG'), supplierId: supplier.id, supplierName: supplier.name, type: 'full', lineIds: rfq.lines.map((l) => l.lineId), createdAt: Date.now() }
       store.update('rfqs', rfq.id, { assignments: [...(rfq.assignments || []), assignment] })
     }
-    res.status(201).json(await buildQuoteFromFile(store.find('rfqs', rfq.id), supplier, req.file))
+    res.status(201).json(await buildQuoteFromFile(store.find('rfqs', rfq.id), supplier, req.file, req.body?.quoteId || req.query.quoteId))
   } catch (err) {
     console.error('[respond] error:', err)
-    res.status(500).json({ error: err.message })
+    res.status(err.status || 500).json({ error: err.message })
   }
 })
 
@@ -937,19 +977,19 @@ function recordPurchases(rfqId) {
   const rfq = store.find('rfqs', rfqId)
   if (!rfq?.award || rfq.award.type === 'reject') return
   const quotes = store.all('quotes').filter((q) => q.rfqId === rfqId)
-  const rateOf = (supplierId, lineId) => {
-    const q = quotes.find((x) => x.supplierId === supplierId)
+  const rateOf = (supplierId, quoteId, lineId) => {
+    const q = quoteId ? quotes.find((x) => x.id === quoteId && x.supplierId === supplierId) : quotes.find((x) => x.supplierId === supplierId)
     const ql = q?.lines.find((l) => l.lineId === lineId)
     return ql ? Number(ql.rate) || 0 : 0
   }
   const records = []
   for (const line of rfq.lines) {
     if (!line.itemId) continue
-    let supplierId = null, supplierName = ''
-    if (rfq.award.type === 'full') { supplierId = rfq.award.supplierId; supplierName = rfq.award.supplierName }
-    else { const sp = rfq.award.splits?.find((s) => s.lineIds?.includes(line.lineId)); supplierId = sp?.supplierId; supplierName = sp?.supplierName }
+    let supplierId = null, supplierName = '', quoteId = null
+    if (rfq.award.type === 'full') { supplierId = rfq.award.supplierId; supplierName = rfq.award.supplierName; quoteId = rfq.award.quoteId }
+    else { const sp = rfq.award.splits?.find((s) => s.lineIds?.includes(line.lineId)); supplierId = sp?.supplierId; supplierName = sp?.supplierName; quoteId = sp?.quoteId }
     if (!supplierId) continue
-    const price = rateOf(supplierId, line.lineId)
+    const price = rateOf(supplierId, quoteId, line.lineId)
     if (!price) continue
     records.push({ itemId: line.itemId, price, qty: line.qty, supplierId, supplierName, rfqId: rfq.id, rfqTitle: rfq.title, at: Date.now() })
   }

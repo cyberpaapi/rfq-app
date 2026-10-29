@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { Rfqs } from '../api/client'
 import { isPriced } from '../../shared/evaluation'
 
-export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false }) {
-  const quote = rfq.quotes?.find((q) => q.supplierId === supplierId)
-  const imagesByLine = new Map((rfq.itemImages || []).filter((image) => image.supplierId === supplierId).map((image) => [image.lineId, image]))
+export default function QuoteEditor({ rfq, supplierId, quoteId, onSaved, disabled = false }) {
+  const quote = rfq.quotes?.find((q) => q.supplierId === supplierId && (quoteId ? q.id === quoteId : (q.optionNumber || 1) === 1))
+  const matchesOption = (file) => quote ? file.quoteId === quote.id || (!file.quoteId && (quote.optionNumber || 1) === 1) : quoteId !== 'new' && !file.quoteId
+  const imagesByLine = new Map((rfq.itemImages || []).filter((image) => image.supplierId === supplierId && matchesOption(image)).map((image) => [image.lineId, image]))
   const attachmentsByLine = new Map()
-  for (const file of rfq.itemAttachments || []) if (file.supplierId === supplierId) attachmentsByLine.set(file.lineId, [...(attachmentsByLine.get(file.lineId) || []), file])
+  for (const file of rfq.itemAttachments || []) if (file.supplierId === supplierId && matchesOption(file)) attachmentsByLine.set(file.lineId, [...(attachmentsByLine.get(file.lineId) || []), file])
   const [values, setValues] = useState({})
   const [selected, setSelected] = useState([])
   const [saving, setSaving] = useState(false)
@@ -26,7 +27,7 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
     setBulkReadyDate('')
     setTouched([])
     setDirty(false); setError('')
-  }, [rfq.id, supplierId, quote?.submittedAt])
+  }, [rfq.id, supplierId, quoteId, quote?.submittedAt])
 
   const update = (lineId, field, value) => {
     setDirty(true)
@@ -60,10 +61,11 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
   }
   const uploadLineFile = async (lineId, kind, file) => {
     if (!file) return
+    if (quoteId === 'new') { setFileError('Save the new quote option before adding a photo or attachment.'); return }
     setUploadingFile(`${kind}:${lineId}`); setFileError('')
     try {
-      if (kind === 'photo') await Rfqs.uploadItemImage(rfq.id, lineId, file, supplierId)
-      else await Rfqs.uploadItemAttachment(rfq.id, lineId, file, supplierId)
+      if (kind === 'photo') await Rfqs.uploadItemImage(rfq.id, lineId, file, supplierId, quote?.id)
+      else await Rfqs.uploadItemAttachment(rfq.id, lineId, file, supplierId, quote?.id)
       await onSaved?.()
     } catch (failure) { setFileError(failure.message) }
     finally { setUploadingFile('') }
@@ -76,16 +78,17 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
     if (selected.some((lineId) => touched.includes(lineId) && !isPriced(values[lineId]))) return setError('Enter a positive unit price for every checked item, or uncheck it.')
     setSaving(true)
     try {
-      await Rfqs.quote(rfq.id, { supplierId, lines })
+      const saved = await Rfqs.quote(rfq.id, { supplierId, quoteId: quoteId || quote?.id, lines })
       setNotice(`Saved ${lines.length} revised item${lines.length === 1 ? '' : 's'}. Other quoted items remain unchanged.`)
       setDirty(false)
-      await onSaved?.()
+      await onSaved?.(saved)
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   if (!supplierId) return null
   return <form onSubmit={submit} className="space-y-3">
     <p className="text-sm text-ink-500">Only checked items with a positive unit price count as quoted. Unchecking a previously quoted item removes its price from comparison and awards. Photos and attachments save as soon as their upload finishes.</p>
+    {quoteId === 'new' && <p className="text-xs text-amber-700">Save at least one priced item to create this quote option, then add its photos and attachments.</p>}
     <div className="flex flex-wrap items-end gap-3">
       <button type="button" className="btn-outline py-1.5 text-xs" onClick={toggleAll} disabled={disabled || saving || !rfq.lines.length}>{selected.length === rfq.lines.length ? 'Clear all' : 'Select all items'}</button>
       <label className="block"><span className="label">Same ready to send date</span><input aria-label="Ready to send date for all items" type="date" className="input w-40" value={bulkReadyDate} onChange={(event) => setBulkReadyDate(event.target.value)} disabled={disabled || saving} /></label>
@@ -103,7 +106,7 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
         <td className="px-3 py-2"><input aria-label={`Offered part number for ${line.name}`} className="input w-32" value={values[line.lineId]?.partNo || ''} onChange={(e) => update(line.lineId, 'partNo', e.target.value)} disabled={disabled || saving} /></td>
         <td className="px-3 py-2 text-right">{line.qty}</td>
         <td className="px-3 py-2">{line.uom}</td>
-        <td className="px-3 py-2">{imagesByLine.has(line.lineId) && <a className="block text-xs font-semibold text-brand-700 hover:underline" href={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId)}>View photo</a>}<label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingFile === `photo:${line.lineId}` ? 'Uploading…' : 'Browse photo'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" disabled={disabled || !!uploadingFile} onChange={(event) => { uploadLineFile(line.lineId, 'photo', event.target.files?.[0]); event.target.value = '' }} /></label></td>
+        <td className="px-3 py-2">{imagesByLine.has(line.lineId) && <a className="block text-xs font-semibold text-brand-700 hover:underline" href={Rfqs.itemImageUrl(rfq.id, line.lineId, supplierId, quote?.id)}>View photo</a>}<label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingFile === `photo:${line.lineId}` ? 'Uploading…' : 'Browse photo'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" disabled={disabled || !!uploadingFile || quoteId === 'new'} onChange={(event) => { uploadLineFile(line.lineId, 'photo', event.target.files?.[0]); event.target.value = '' }} /></label></td>
         <td className="px-3 py-2 text-ink-600">{line.remark || '—'}</td>
         <td className="px-3 py-2"><input aria-label={`Unit price for ${line.name}`} type="number" min="0" step="any" className="input w-28" value={values[line.lineId]?.rate || ''} onChange={(e) => update(line.lineId, 'rate', e.target.value)} disabled={disabled || saving} /></td>
         <td className="px-3 py-2"><input aria-label={`Ready to send date for ${line.name}`} type="date" className="input w-40" value={values[line.lineId]?.readyToSendDate || ''} onChange={(e) => update(line.lineId, 'readyToSendDate', e.target.value)} disabled={disabled || saving} /></td>
@@ -112,7 +115,7 @@ export default function QuoteEditor({ rfq, supplierId, onSaved, disabled = false
         <td className="px-3 py-2"><input aria-label={`Payment terms for ${line.name}`} className="input w-40" value={values[line.lineId]?.paymentTerms || ''} onChange={(e) => update(line.lineId, 'paymentTerms', e.target.value)} disabled={disabled || saving} /></td>
         <td className="px-3 py-2"><input aria-label={`Warranty for ${line.name}`} className="input w-32" value={values[line.lineId]?.warranty || ''} onChange={(e) => update(line.lineId, 'warranty', e.target.value)} disabled={disabled || saving} /></td>
         <td className="px-3 py-2"><input aria-label={`Supplier remarks for ${line.name}`} className="input w-40" value={values[line.lineId]?.remark || ''} onChange={(e) => update(line.lineId, 'remark', e.target.value)} disabled={disabled || saving} /></td>
-        <td className="px-3 py-2">{(attachmentsByLine.get(line.lineId) || []).map((file) => <a key={file.id} className="block text-xs font-semibold text-brand-700 hover:underline" href={Rfqs.itemAttachmentUrl(rfq.id, line.lineId, file.id)}>{file.name}</a>)}<label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingFile === `attachment:${line.lineId}` ? 'Uploading…' : 'Attach file'}<input type="file" hidden disabled={disabled || !!uploadingFile} onChange={(event) => { uploadLineFile(line.lineId, 'attachment', event.target.files?.[0]); event.target.value = '' }} /></label></td>
+        <td className="px-3 py-2">{(attachmentsByLine.get(line.lineId) || []).map((file) => <a key={file.id} className="block text-xs font-semibold text-brand-700 hover:underline" href={Rfqs.itemAttachmentUrl(rfq.id, line.lineId, file.id)}>{file.name}</a>)}<label className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">{uploadingFile === `attachment:${line.lineId}` ? 'Uploading…' : 'Attach file'}<input type="file" hidden disabled={disabled || !!uploadingFile || quoteId === 'new'} onChange={(event) => { uploadLineFile(line.lineId, 'attachment', event.target.files?.[0]); event.target.value = '' }} /></label></td>
       </tr>)}</tbody>
     </table></div>
     {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}

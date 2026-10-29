@@ -1,8 +1,8 @@
 import { Download } from 'lucide-react'
 import { Rfqs } from '../api/client'
 
-export default function SubmissionHistory({ rfq, supplierId, canDownload = true }) {
-  const quote = rfq?.quotes?.find((entry) => entry.supplierId === supplierId)
+export default function SubmissionHistory({ rfq, supplierId, quoteId, canDownload = true }) {
+  const quote = rfq?.quotes?.find((entry) => entry.supplierId === supplierId && (quoteId ? entry.id === quoteId : (entry.optionNumber || 1) === 1))
   const submissions = [...(quote?.submissions || [])].reverse()
   if (!supplierId) return null
 
@@ -16,7 +16,7 @@ export default function SubmissionHistory({ rfq, supplierId, canDownload = true 
           <span className="ml-2 text-xs font-normal text-ink-500">{new Date(entry.at).toLocaleString()} · {entry.changedLineIds?.length || 0} item{entry.changedLineIds?.length === 1 ? '' : 's'} updated</span>
         </summary>
         <div className="mt-3 text-sm">
-          {entry.fileName && <div className="mb-3 flex flex-wrap items-center gap-2"><span className="text-ink-600">File: {entry.fileName}</span>{entry.hasFile && canDownload && <a className="btn-outline py-1 text-xs" href={Rfqs.quoteSubmissionFileUrl(rfq.id, supplierId, entry.id)}><Download size={13} /> Download original</a>}</div>}
+          {entry.fileName && <div className="mb-3 flex flex-wrap items-center gap-2"><span className="text-ink-600">File: {entry.fileName}</span>{entry.hasFile && canDownload && <a className="btn-outline py-1 text-xs" href={Rfqs.quoteSubmissionFileUrl(rfq.id, quote.id, entry.id)}><Download size={13} /> Download original</a>}</div>}
           <div className="overflow-x-auto"><table className="min-w-full text-left text-xs"><thead><tr className="border-b border-ink-100 text-ink-500"><th className="py-2 pr-3">RFQ item</th><th className="py-2 pr-3">Offered item / brand</th><th className="py-2 pr-3 text-right">Unit price (USD)</th></tr></thead><tbody>{(entry.lines || []).filter((line) => Number(line.rate) > 0).map((line) => <tr key={line.lineId} className="border-b border-ink-50"><td className="py-2 pr-3">{rfq.lines?.find((item) => item.lineId === line.lineId)?.name || line.name || line.lineId}</td><td className="py-2 pr-3">{[line.offeredName, line.brand, line.model].filter(Boolean).join(' · ') || '—'}</td><td className="py-2 pr-3 text-right">{Number(line.rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
           {!entry.lines?.some((line) => Number(line.rate) > 0) && <p className="text-ink-500">No priced items in this submission.</p>}
         </div>
