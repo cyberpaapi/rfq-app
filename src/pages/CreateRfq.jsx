@@ -317,7 +317,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
               </div>
             )}
 
-            <ItemsTable rows={lines} onChange={onLineChange} onRemove={onLineRemove} onSetAllDeliveryDates={onSetAllDeliveryDates} commonDeliveryDate={commonDeliveryDate} mappable emptyHint="Import from Excel, search the catalogue, or click “Add item”." />
+            <ItemsTable rows={lines} onChange={onLineChange} onRemove={onLineRemove} onSetAllDeliveryDates={onSetAllDeliveryDates} mappable emptyHint="Import from Excel, search the catalogue, or click “Add item”." />
           </div>
         )}
 

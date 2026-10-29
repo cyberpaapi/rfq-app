@@ -114,13 +114,21 @@ router.get('/costing/:rfqId', (req, res) => {
 })
 
 // GET /api/export/rfq-items/:rfqId — fixed RFQ template for suppliers to fill in.
-const rfqItemHeaders = ['S.No', 'Item Name', 'Specification', 'Description', 'Secondary Requirements', 'Brand', 'Model No', 'Part No', 'Quantity', 'Unit', 'Remark', 'Required Delivery Date', 'Unit Price']
+const rfqItemHeaders = [
+  'S.No', 'Quote', 'Item Name', 'Specification', 'Description', 'Secondary Requirements',
+  'Brand', 'Model No', 'Part No', 'Quantity', 'Unit', 'RFQ Photo', 'Remark',
+  'Required Delivery Date', 'Offered Item Name', 'Offered Description', 'Offered Brand',
+  'Offered Model No', 'Offered Part No', 'Supplier Photo', 'Unit Price',
+  'Ready to Send Date', 'Delivery Lead Time', 'ETA', 'Payment Terms', 'Warranty',
+  'Supplier Remarks', 'Attachments',
+]
 router.get('/rfq-items/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
   const visibleLines = req.supplierId ? assignedRfqLines(rfq, req.supplierId) : rfq.lines
   const rows = visibleLines.map((l, i) => ({
     'S.No': i + 1,
+    'Quote': '',
     'Item Name': l.name,
     'Specification': l.spec || '',
     'Description': l.description || '',
@@ -130,9 +138,23 @@ router.get('/rfq-items/:rfqId', (req, res) => {
     'Part No': l.partNo || '',
     'Quantity': l.qty,
     'Unit': l.uom,
+    'RFQ Photo': l.photo ? 'Available in RFQ portal' : '',
     'Remark': l.remark || '',
     'Required Delivery Date': l.requiredDeliveryDate || '',
+    'Offered Item Name': '',
+    'Offered Description': '',
+    'Offered Brand': '',
+    'Offered Model No': '',
+    'Offered Part No': '',
+    'Supplier Photo': '',
     'Unit Price': '',
+    'Ready to Send Date': '',
+    'Delivery Lead Time': '',
+    'ETA': '',
+    'Payment Terms': '',
+    'Warranty': '',
+    'Supplier Remarks': '',
+    'Attachments': '',
   }))
   const ws = XLSX.utils.aoa_to_sheet([rfqItemHeaders, ...rows.map((row) => rfqItemHeaders.map((key) => row[key]))])
   const wb = XLSX.utils.book_new()

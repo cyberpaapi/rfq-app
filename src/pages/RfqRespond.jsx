@@ -53,7 +53,7 @@ export default function RfqRespond() {
           <div className="space-y-4 rounded-2xl bg-white p-6 shadow-card">
             <div>
               <p className="text-sm font-semibold text-ink-700">1. Download the RFQ</p>
-              <p className="mb-2 text-xs text-ink-400">Get the item list (with an empty Unit Price column to fill in).</p>
+              <p className="mb-2 text-xs text-ink-400">Get the item list with all supplier response columns. Add prices and terms in the sheet; upload photos and attachments in the portal.</p>
               {(can('workspace.view') || can('portal.access')) && <a href={Rfqs.exportRfqItemsUrl(id)} className="btn-outline"><Download size={16} /> Download RFQ (.xlsx)</a>}
             </div>
 

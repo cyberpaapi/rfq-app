@@ -10,6 +10,8 @@ import * as XLSX from 'xlsx'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { extractDocument } from '../server/lib/extract.js'
 
+const rfqExportHeaders = ['S.No', 'Quote', 'Item Name', 'Specification', 'Description', 'Secondary Requirements', 'Brand', 'Model No', 'Part No', 'Quantity', 'Unit', 'RFQ Photo', 'Remark', 'Required Delivery Date', 'Offered Item Name', 'Offered Description', 'Offered Brand', 'Offered Model No', 'Offered Part No', 'Supplier Photo', 'Unit Price', 'Ready to Send Date', 'Delivery Lead Time', 'ETA', 'Payment Terms', 'Warranty', 'Supplier Remarks', 'Attachments']
+
 test('procurement API regression checks on isolated data', async (t) => {
   const data = await mkdtemp(join(tmpdir(), 'opro-regression-'))
   const port = 44123
@@ -254,7 +256,7 @@ test('procurement API regression checks on isolated data', async (t) => {
     const supplierWorksheet = XLSX.read(await supplierSheet.arrayBuffer()).Sheets['RFQ Items']
     const supplierRows = XLSX.utils.sheet_to_json(supplierWorksheet)
     assert.equal(supplierRows.length, 1)
-    assert.deepEqual(XLSX.utils.sheet_to_json(supplierWorksheet, { header: 1 })[0], ['S.No', 'Item Name', 'Specification', 'Description', 'Secondary Requirements', 'Brand', 'Model No', 'Part No', 'Quantity', 'Unit', 'Remark', 'Required Delivery Date', 'Unit Price'])
+    assert.deepEqual(XLSX.utils.sheet_to_json(supplierWorksheet, { header: 1 })[0], rfqExportHeaders)
     assert.ok(!Object.keys(supplierRows[0]).some((key) => /stock/i.test(key)))
     assert.equal(portalView.data.creationDate, mini.creationDate)
     assert.equal(portalView.data.attachments[0].name, 'drawing-notes.txt')
@@ -402,11 +404,10 @@ test('procurement API regression checks on isolated data', async (t) => {
     const workbook = XLSX.read(Buffer.from(await downloaded.arrayBuffer()), { type: 'buffer' })
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets['RFQ Items'])
     assert.deepEqual(rows.map((row) => row['Item Name']), ['First item'])
-    const expectedHeaders = ['S.No', 'Item Name', 'Specification', 'Description', 'Secondary Requirements', 'Brand', 'Model No', 'Part No', 'Quantity', 'Unit', 'Remark', 'Required Delivery Date', 'Unit Price']
-    assert.deepEqual(XLSX.utils.sheet_to_json(workbook.Sheets['RFQ Items'], { header: 1 })[0], expectedHeaders)
+    assert.deepEqual(XLSX.utils.sheet_to_json(workbook.Sheets['RFQ Items'], { header: 1 })[0], rfqExportHeaders)
     const internalWorkbook = XLSX.read(Buffer.from(await (await downloadRfq(mini.id, cookie)).arrayBuffer()), { type: 'buffer' })
     const internalRows = XLSX.utils.sheet_to_json(internalWorkbook.Sheets['RFQ Items'])
-    assert.deepEqual(XLSX.utils.sheet_to_json(internalWorkbook.Sheets['RFQ Items'], { header: 1 })[0], expectedHeaders)
+    assert.deepEqual(XLSX.utils.sheet_to_json(internalWorkbook.Sheets['RFQ Items'], { header: 1 })[0], rfqExportHeaders)
     assert.deepEqual(internalRows.map((row) => row['Item Name']), ['First item', 'Replacement item'])
     assert.equal(internalRows[1]['Specification'], 'IP65')
     assert.equal(internalRows[1]['Description'], 'Outdoor enclosure')

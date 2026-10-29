@@ -137,9 +137,10 @@ function Row({ row, i, onChange, onRemove, nameExtra, mappable }) {
 // rows: array of item objects (name, spec, brand, model, partNo, quantity, uom,
 //   photo, remark, requiredDeliveryDate, description, secondaryRequirements)
 // onChange(i, patch) · onRemove(i) · nameExtra(row, i) optional ReactNode
-export default function ItemsTable({ rows, onChange, onRemove, onSetAllDeliveryDates, commonDeliveryDate = '', nameExtra, mappable = false, emptyHint = 'Add an item or import a document.' }) {
+export default function ItemsTable({ rows, onChange, onRemove, onSetAllDeliveryDates, nameExtra, mappable = false, emptyHint = 'Add an item or import a document.' }) {
   const scrollRef = useRef(null)
   const [edges, setEdges] = useState({ left: false, right: false })
+  const [bulkDeliveryDate, setBulkDeliveryDate] = useState('')
 
   const updateEdges = () => {
     const el = scrollRef.current
@@ -160,22 +161,17 @@ export default function ItemsTable({ rows, onChange, onRemove, onSetAllDeliveryD
 
   if (!rows?.length) return <Empty icon="items" title="No items" hint={emptyHint} />
 
-  // Arrow buttons sit beside the column headings, below the optional bulk-date row.
-  const arrowBtn = `absolute ${onSetAllDeliveryDates ? 'top-20' : 'top-1'} z-20 grid h-8 w-8 place-items-center rounded-full border border-ink-200 bg-white text-ink-600 shadow-md transition hover:bg-ink-50 hover:text-brand-600`
+  const arrowBtn = 'absolute top-1 z-20 grid h-8 w-8 place-items-center rounded-full border border-ink-200 bg-white text-ink-600 shadow-md transition hover:bg-ink-50 hover:text-brand-600'
   return (
-    <div className="relative">
+    <div className="space-y-3">
+      {onSetAllDeliveryDates && <div className="flex flex-wrap items-end gap-3">
+        <label className="block"><span className="label">Same required delivery date</span><input type="date" aria-label="Required delivery date for all items" value={bulkDeliveryDate} onChange={(event) => setBulkDeliveryDate(event.target.value)} className="input w-40" /></label>
+        <button type="button" className="btn-outline py-1.5 text-xs" onClick={() => onSetAllDeliveryDates(bulkDeliveryDate)} disabled={!bulkDeliveryDate}>Apply date to all</button>
+      </div>}
+      <div className="relative">
       <div ref={scrollRef} onScroll={updateEdges} className={`overflow-x-auto rounded-xl border border-ink-100 ${mappable ? 'pl-7' : ''}`}>
         <table className="w-full min-w-[1320px] border-collapse text-sm">
           <thead>
-            {onSetAllDeliveryDates && <tr className="bg-white">
-              <th colSpan={10} className="border-b border-ink-100" />
-              <th className="border-b border-ink-100 px-3 py-2 text-left">
-                <label className="block text-[11px] font-semibold text-brand-700">Set date for all items
-                  <input type="date" aria-label="Set required delivery date for all items" value={commonDeliveryDate} onChange={(event) => onSetAllDeliveryDates(event.target.value)} className="mt-1 w-36 rounded-md border border-brand-300 bg-white p-1.5 text-xs font-normal text-ink-800" />
-                </label>
-              </th>
-              <th colSpan={2} className="border-b border-ink-100" />
-            </tr>}
             <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
               {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}</th>)}
               <th className="border-b border-ink-200 px-2 py-2.5"></th>
@@ -188,6 +184,7 @@ export default function ItemsTable({ rows, onChange, onRemove, onSetAllDeliveryD
       </div>
       {edges.left && <button type="button" aria-label="Scroll columns left" onClick={() => nudge(-360)} className={`${arrowBtn} left-1.5`}><ChevronLeft size={18} /></button>}
       {edges.right && <button type="button" aria-label="Scroll columns right" onClick={() => nudge(360)} className={`${arrowBtn} right-1.5`}><ChevronRight size={18} /></button>}
+      </div>
     </div>
   )
 }
