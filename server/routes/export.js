@@ -113,8 +113,7 @@ router.get('/costing/:rfqId', (req, res) => {
   sendWorkbook(res, wb, `${rfq.id}-Costing.xlsx`)
 })
 
-// GET /api/export/rfq-items/:rfqId — the RFQ item list for a supplier to fill in
-// (includes an empty "Unit Price" column).
+// GET /api/export/rfq-items/:rfqId — only columns with values in the visible RFQ items.
 router.get('/rfq-items/:rfqId', (req, res) => {
   const rfq = store.find('rfqs', req.params.rfqId)
   if (!rfq) return res.status(404).json({ error: 'rfq not found' })
@@ -131,9 +130,11 @@ router.get('/rfq-items/:rfqId', (req, res) => {
     'Unit': l.uom,
     'Remark': l.remark || '',
     'Required Delivery Date': l.requiredDeliveryDate || '',
-    'Unit Price': '',
   }))
-  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Item Name': '', 'Quantity': '', 'Unit Price': '' }])
+  const headers = rows.length
+    ? Object.keys(rows[0]).filter((key) => rows.some((row) => row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== ''))
+    : ['S.No', 'Item Name', 'Quantity']
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((row) => headers.map((key) => row[key]))])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'RFQ Items')
   sendWorkbook(res, wb, `${rfq.id}-RFQ.xlsx`)

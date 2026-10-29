@@ -88,12 +88,13 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
     setLines((prev) => [...prev, {
       _key: key, itemId: it.itemId || it.id || null, sku: it.sku || '', name: it.name, spec: it.spec || '',
       description: it.description || '', brand: it.brand || '', model: it.model || '', partNo: it.partNo || '',
-      uom: it.uom || 'PCS', quantity: it.quantity || 1, secondaryRequirements: it.secondaryRequirements || '', remark: '', requiredDeliveryDate: '', photo: '', attachment: '',
+      uom: it.uom || 'PCS', quantity: it.quantity || 1, secondaryRequirements: it.secondaryRequirements || '', remark: '', requiredDeliveryDate: commonDeliveryDate, photo: '', attachment: '',
     }])
   }
-  const addBlank = () => setLines((prev) => [...prev, { _key: 'new-' + Date.now() + Math.random(), itemId: null, sku: '', name: '', spec: '', description: '', brand: '', model: '', partNo: '', uom: 'PCS', quantity: 1, secondaryRequirements: '', remark: '', requiredDeliveryDate: '', photo: '', attachment: '' }])
+  const addBlank = () => setLines((prev) => [...prev, { _key: 'new-' + Date.now() + Math.random(), itemId: null, sku: '', name: '', spec: '', description: '', brand: '', model: '', partNo: '', uom: 'PCS', quantity: 1, secondaryRequirements: '', remark: '', requiredDeliveryDate: commonDeliveryDate, photo: '', attachment: '' }])
   // Index-based handlers for the shared ItemsTable.
   const onLineChange = (i, patch) => setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
+  const onSetAllDeliveryDates = (date) => setLines((prev) => prev.map((line) => ({ ...line, requiredDeliveryDate: date })))
   const onLineRemove = (i) => setLines((prev) => prev.filter((_, idx) => idx !== i))
   const toggleGroup = (g) => setOpenGroups((o) => (o.includes(g) ? o.filter((x) => x !== g) : [...o, g]))
   const toggleSupplier = async (id) => {
@@ -151,6 +152,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
       .sort((a, b) => Number(b.previouslyInvited) - Number(a.previouslyInvited))
   }, [suppliers, catFilter, supQuery])
   const readyLines = lines.filter((line) => typeof line.name === 'string' && line.name.trim())
+  const commonDeliveryDate = lines.length && lines.every((line) => (line.requiredDeliveryDate || '') === (lines[0].requiredDeliveryDate || '')) ? lines[0].requiredDeliveryDate || '' : ''
   const picked = assignments.map((assignment) => assignment.supplierId)
 
   const canNext =
@@ -315,7 +317,7 @@ export default function CreateRfq({ initialDraft, onBackToImport }) {
               </div>
             )}
 
-            <ItemsTable rows={lines} onChange={onLineChange} onRemove={onLineRemove} mappable emptyHint="Import from Excel, search the catalogue, or click “Add item”." />
+            <ItemsTable rows={lines} onChange={onLineChange} onRemove={onLineRemove} onSetAllDeliveryDates={onSetAllDeliveryDates} commonDeliveryDate={commonDeliveryDate} mappable emptyHint="Import from Excel, search the catalogue, or click “Add item”." />
           </div>
         )}
 

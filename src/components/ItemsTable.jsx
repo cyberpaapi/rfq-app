@@ -137,7 +137,7 @@ function Row({ row, i, onChange, onRemove, nameExtra, mappable }) {
 // rows: array of item objects (name, spec, brand, model, partNo, quantity, uom,
 //   photo, remark, requiredDeliveryDate, description, secondaryRequirements)
 // onChange(i, patch) · onRemove(i) · nameExtra(row, i) optional ReactNode
-export default function ItemsTable({ rows, onChange, onRemove, nameExtra, mappable = false, emptyHint = 'Add an item or import a document.' }) {
+export default function ItemsTable({ rows, onChange, onRemove, onSetAllDeliveryDates, commonDeliveryDate = '', nameExtra, mappable = false, emptyHint = 'Add an item or import a document.' }) {
   const scrollRef = useRef(null)
   const [edges, setEdges] = useState({ left: false, right: false })
 
@@ -168,7 +168,7 @@ export default function ItemsTable({ rows, onChange, onRemove, nameExtra, mappab
         <table className="w-full min-w-[1320px] border-collapse text-sm">
           <thead>
             <tr className="bg-ink-50 text-left text-xs font-bold uppercase tracking-wide text-ink-600">
-              {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}</th>)}
+              {HEADERS.map((h) => <th key={h} className="border-b border-ink-200 px-3 py-2.5">{h}{h === 'Required Delivery Date' && onSetAllDeliveryDates && <label className="mt-2 block normal-case tracking-normal"><span className="sr-only">Set required delivery date for all items</span><input type="date" aria-label="Set required delivery date for all items" value={commonDeliveryDate} onChange={(event) => onSetAllDeliveryDates(event.target.value)} className="w-36 rounded-md border border-brand-300 bg-white p-1.5 text-xs font-normal text-ink-800" /></label>}</th>)}
               <th className="border-b border-ink-200 px-2 py-2.5"></th>
             </tr>
           </thead>
